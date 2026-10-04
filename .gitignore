@@ -17,3 +17,10 @@ DashScope_*.md
 .vs/
 Thumbs.db
 Desktop.ini
+
+# Media Generator & OAuth credentials
+media_generator/client_secret*.json
+media_generator/token*.json
+media_generator/auth_url.txt
+media_generator/output/
+media_generator/audio/

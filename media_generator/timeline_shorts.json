@@ -1,0 +1,84 @@
+{
+  "category": "shorts",
+  "total_duration": 44.43,
+  "master_audio": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\shorts\\master_shorts.mp3",
+  "segments": [
+    {
+      "id": "s0_hook",
+      "text": "Still waiting for heavy CAD software just to check what's inside a file?",
+      "subtitle": "Tired of heavy CAD load times?",
+      "title": "",
+      "asset": "scene_1_iso_shaded.png",
+      "start": 0.5,
+      "end": 5.75,
+      "duration": 4.9,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\shorts\\s0_hook.mp3"
+    },
+    {
+      "id": "s1_intro",
+      "text": "Meet ModelPeek — the native 3D preview extension for Windows Explorer.",
+      "subtitle": "Meet ModelPeek: Native Windows 3D Preview",
+      "title": "",
+      "asset": "scene_0_explorer_mockup.png",
+      "start": 5.75,
+      "end": 11.5,
+      "duration": 5.4,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\shorts\\s1_intro.mp3"
+    },
+    {
+      "id": "s2_thumbs",
+      "text": "Instant 3D thumbnails for STEP, STL, and OBJ files directly in your folders.",
+      "subtitle": "Instant 3D Thumbnails (STEP / STL / OBJ)",
+      "title": "",
+      "asset": "scene_0_explorer_mockup.png",
+      "start": 11.5,
+      "end": 18.31,
+      "duration": 6.46,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\shorts\\s2_thumbs.mp3"
+    },
+    {
+      "id": "s3_preview",
+      "text": "Select any model, and an interactive 3D viewport appears right in the preview pane.",
+      "subtitle": "Interactive Right-Pane 3D Viewport",
+      "title": "",
+      "asset": "scene_2_rotated_3d.png",
+      "start": 18.31,
+      "end": 24.28,
+      "duration": 5.62,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\shorts\\s3_preview.mp3"
+    },
+    {
+      "id": "s4_wireframe",
+      "text": "Rotate in 3D, inspect geometry, switch to wireframe mode, and snap camera angles.",
+      "subtitle": "Wireframe Mesh & Multi-Angle Orthographic Views",
+      "title": "",
+      "asset": "scene_3_wireframe.png",
+      "start": 24.28,
+      "end": 31.52,
+      "duration": 6.89,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\shorts\\s4_wireframe.mp3"
+    },
+    {
+      "id": "s5_ortho",
+      "text": "Check dimensions, vertex counts, and faces with zero delay.",
+      "subtitle": "Real-time HUD Dimensions & Face Stats",
+      "title": "",
+      "asset": "scene_4_top_ortho.png",
+      "start": 31.52,
+      "end": 36.6,
+      "duration": 4.73,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\shorts\\s5_ortho.mp3"
+    },
+    {
+      "id": "s6_outro",
+      "text": "Lightweight, portable, and blazingly fast. Try ModelPeek on GitHub today!",
+      "subtitle": "Free & Open Source on GitHub",
+      "title": "",
+      "asset": "scene_7_fit_overview.png",
+      "start": 36.6,
+      "end": 43.43,
+      "duration": 6.48,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\shorts\\s6_outro.mp3"
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "category": "standard",
+  "total_duration": 93.0,
+  "master_audio": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\master_standard.mp3",
+  "segments": [
+    {
+      "id": "std0_problem",
+      "text": "If you work with 3D CAD models on Windows, you know the frustration. Opening SolidWorks, Fusion 360, or Blender just to inspect a single part takes minutes and eats gigabytes of memory.",
+      "subtitle": "Opening bulky CAD tools just to check a part takes minutes.",
+      "title": "The CAD Workflow Problem",
+      "asset": "scene_1_iso_shaded.png",
+      "start": 0.5,
+      "end": 13.59,
+      "duration": 12.74,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\std0_problem.mp3"
+    },
+    {
+      "id": "std1_intro",
+      "text": "Welcome to ModelPeek. ModelPeek is an ultra-fast, lightweight 3D preview extension seamlessly integrated into the Windows Shell.",
+      "subtitle": "Native Windows Shell 3D Preview Extension",
+      "title": "Introducing ModelPeek",
+      "asset": "scene_0_explorer_mockup.png",
+      "start": 13.59,
+      "end": 22.99,
+      "duration": 9.05,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\std1_intro.mp3"
+    },
+    {
+      "id": "std2_thumbnails",
+      "text": "First, ModelPeek automatically generates crystal-clear 3D thumbnails for STEP, STL, and OBJ formats, allowing you to identify parts at a glance without ever opening a CAD suite.",
+      "subtitle": "Instant 3D thumbnails directly in Windows Explorer folders.",
+      "title": "Native 3D Thumbnail Provider",
+      "asset": "scene_0_explorer_mockup.png",
+      "start": 22.99,
+      "end": 35.56,
+      "duration": 12.22,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\std2_thumbnails.mp3"
+    },
+    {
+      "id": "std3_preview_pane",
+      "text": "Second, click the Windows Explorer preview pane, and you immediately get a full 6-degree-of-freedom interactive 3D viewport powered by hardware-accelerated WebGL.",
+      "subtitle": "Full 6-DOF Orbit Controls & Hardware-Accelerated WebGL",
+      "title": "Interactive Preview Pane Handler",
+      "asset": "scene_2_rotated_3d.png",
+      "start": 35.56,
+      "end": 46.85,
+      "duration": 10.94,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\std3_preview_pane.mp3"
+    },
+    {
+      "id": "std4_rendering",
+      "text": "ModelPeek features studio lighting, ACES filmic tone mapping, shaded-with-edges rendering, and a dedicated wireframe mode for inspecting complex topology.",
+      "subtitle": "Studio Lighting, ACES Tone Mapping & Wireframe Topology",
+      "title": "Professional CAD Visualizer",
+      "asset": "scene_3_wireframe.png",
+      "start": 46.85,
+      "end": 56.78,
+      "duration": 9.58,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\std4_rendering.mp3"
+    },
+    {
+      "id": "std5_views_stats",
+      "text": "Switch instantly between Isometric, Top, Front, and Right orthographic views, or hit Fit to center your model. Plus, inspect bounding dimensions, vertex counts, and face counts directly on the HUD.",
+      "subtitle": "Top / Front / Right Views & Real-time Bounding Box Stats",
+      "title": "HUD Inspection & Camera Presets",
+      "asset": "scene_4_top_ortho.png",
+      "start": 56.78,
+      "end": 70.95,
+      "duration": 13.82,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\std5_views_stats.mp3"
+    },
+    {
+      "id": "std6_arch_safety",
+      "text": "Best of all, ModelPeek is completely self-contained and portable. It runs locally inside a low-integrity preview sandbox, ensuring maximum security and zero background CPU overhead.",
+      "subtitle": "Self-contained portable architecture with zero background services.",
+      "title": "Zero Bloat & Sandbox Security",
+      "asset": "scene_6_closeup.png",
+      "start": 70.95,
+      "end": 83.85,
+      "duration": 12.55,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\std6_arch_safety.mp3"
+    },
+    {
+      "id": "std7_conclusion",
+      "text": "Upgrade your Windows workflow today with ModelPeek. Free, open source, and available right now on GitHub.",
+      "subtitle": "100% Free & Open Source on GitHub",
+      "title": "Get ModelPeek Now",
+      "asset": "scene_7_fit_overview.png",
+      "start": 83.85,
+      "end": 92.0,
+      "duration": 7.8,
+      "audio_file": "C:\\Users\\20858\\Desktop\\ModelPeek_开发\\media_generator\\audio\\standard\\std7_conclusion.mp3"
+    }
+  ]
+}
