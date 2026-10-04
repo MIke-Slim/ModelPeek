@@ -261,6 +261,16 @@ class ModelPeekViewer {
                     }
                 }
             } else if (child.isLine || child.isLineSegments) {
+                if (child.material) {
+                    if (child.material.color && (child.material.color.getHex() === 0x3300ff || child.material.color.getHex() === 0x000000)) {
+                        child.material.color.setHex(0x00d2ff);
+                    }
+                    if (child.material.linewidth !== undefined) {
+                        child.material.linewidth = 2;
+                    }
+                } else {
+                    child.material = new THREE.LineBasicMaterial({ color: 0x00d2ff, linewidth: 2 });
+                }
                 if (child.geometry && child.geometry.attributes && child.geometry.attributes.position) {
                     vertexCount += child.geometry.attributes.position.count;
                 }
