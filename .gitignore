@@ -1,0 +1,19 @@
+# Third-party bulky runtimes & toolchains
+dist/occt/
+tools/*
+!tools/WebView2Loader.dll.lib
+!tools/WebView2Loader.dll
+
+# Test files & logs
+*.log
+*.tmp
+*.tmp.*
+sample_models/*.bmp
+sample_models/*_out.*
+DashScope_*.md
+
+# IDE & OS files
+.vscode/
+.vs/
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ModelPeek 3D Preview</title>
+    <link rel="stylesheet" href="viewer.css">
+    <!-- Offline Embedded Three.js Engine & Loaders -->
+    <script src="libs/three.min.js"></script>
+    <script src="libs/OrbitControls.js"></script>
+    <script src="libs/STLLoader.js"></script>
+    <script src="libs/OBJLoader.js"></script>
+    <script src="libs/GLTFLoader.js"></script>
+    <script src="libs/fflate.min.js"></script>
+    <script src="libs/3MFLoader.js"></script>
+    <script src="libs/FBXLoader.js"></script>
+</head>
+<body>
+    <div id="canvas-container"></div>
+
+    <!-- 顶部状态与交互工具条 -->
+    <div id="top-toolbar">
+        <div class="tool-group">
+            <button class="btn active" data-render-mode="shaded_edges" title="实体加结构特征线">渲染+边线</button>
+            <button class="btn" data-render-mode="shaded" title="纯着色高光实体">纯实体</button>
+            <button class="btn" data-render-mode="wireframe" title="网格线框模式">线框</button>
+        </div>
+
+        <div class="tool-group">
+            <button class="btn" data-view="iso" title="轴测等轴视图">等轴测</button>
+            <button class="btn" data-view="top" title="顶视图">顶视</button>
+            <button class="btn" data-view="front" title="前视图">前视</button>
+            <button class="btn" data-view="right" title="右视图">右视</button>
+            <button class="btn" id="btn-fit" title="居中自适应大小">适配</button>
+        </div>
+
+        <div class="tool-group">
+            <button class="btn" id="btn-measure" title="测量两点距离">📏 测量</button>
+            <button class="btn" id="btn-section" title="剖切截面观察">✂️ 剖切</button>
+        </div>
+    </div>
+
+    <!-- 测量浮动工具条 -->
+    <div id="measure-bar" class="floating-tool-bar">
+        <span class="tool-title">📏 测距:</span>
+        <span class="tool-val" id="measure-result">点击模型拾取两点</span>
+        <button class="btn" id="btn-measure-clear">清除</button>
+        <button class="btn" id="btn-measure-close">关闭</button>
+    </div>
+
+    <!-- 剖切截面工具条 -->
+    <div id="section-bar" class="floating-tool-bar">
+        <span class="tool-title">✂️ 剖切:</span>
+        <button class="btn active" id="sec-axis-x" data-axis="x">X轴</button>
+        <button class="btn" id="sec-axis-y" data-axis="y">Y轴</button>
+        <button class="btn" id="sec-axis-z" data-axis="z">Z轴</button>
+        <input type="range" id="sec-slider" min="0" max="100" value="50">
+        <button class="btn" id="sec-invert">反向</button>
+        <button class="btn" id="btn-section-close">关闭</button>
+    </div>
+
+    <!-- HUD 信息统计小卡片 -->
+    <div id="info-panel">
+        <div class="title" id="stat-name">等待选择模型...</div>
+        <div class="stat-row">
+            <span class="stat-label">外形尺寸:</span>
+            <span class="stat-val" id="stat-dims">--</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">顶点数量:</span>
+            <span class="stat-val" id="stat-vertices">--</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">三角面数:</span>
+            <span class="stat-val" id="stat-faces">--</span>
+        </div>
+    </div>
+
+    <!-- 加载动画指示层 -->
+    <div id="loader-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <div id="loader-text">正在解析模型...</div>
+    </div>
+
+    <!-- Toast 提示 -->
+    <div id="toast"></div>
+
+    <script src="viewer.js"></script>
+</body>
+</html>
