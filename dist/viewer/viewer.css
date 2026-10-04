@@ -170,3 +170,43 @@ body, html {
     display: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
+
+/* 底部交互浮动面板：测量与剖切 */
+.floating-tool-bar {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    background: rgba(30, 34, 43, 0.88);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    z-index: 15;
+}
+
+.floating-tool-bar.active {
+    display: flex;
+}
+
+.floating-tool-bar .tool-title {
+    color: #88c0d0;
+    font-weight: 600;
+}
+
+.floating-tool-bar .tool-val {
+    color: #a3be8c;
+    font-family: Consolas, monospace;
+    font-weight: bold;
+}
+
+.floating-tool-bar input[type="range"] {
+    width: 120px;
+    cursor: pointer;
+}
+

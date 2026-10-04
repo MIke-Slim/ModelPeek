@@ -13,6 +13,11 @@
     <script src="libs/GLTFLoader.js"></script>
     <script src="libs/fflate.min.js"></script>
     <script src="libs/3MFLoader.js"></script>
+    <script src="libs/FBXLoader.js"></script>
+    <script src="libs/PLYLoader.js"></script>
+    <script src="libs/GCodeLoader.js"></script>
+    <script src="libs/ColladaLoader.js"></script>
+    <script src="libs/TDSLoader.js"></script>
 </head>
 <body>
     <div id="canvas-container"></div>
@@ -32,6 +37,30 @@
             <button class="btn" data-view="right" title="右视图">右视</button>
             <button class="btn" id="btn-fit" title="居中自适应大小">适配</button>
         </div>
+
+        <div class="tool-group">
+            <button class="btn" id="btn-measure" title="测量两点距离">📏 测量</button>
+            <button class="btn" id="btn-section" title="剖切截面观察">✂️ 剖切</button>
+        </div>
+    </div>
+
+    <!-- 测量浮动工具条 -->
+    <div id="measure-bar" class="floating-tool-bar">
+        <span class="tool-title">📏 测距:</span>
+        <span class="tool-val" id="measure-result">点击模型拾取两点</span>
+        <button class="btn" id="btn-measure-clear">清除</button>
+        <button class="btn" id="btn-measure-close">关闭</button>
+    </div>
+
+    <!-- 剖切截面工具条 -->
+    <div id="section-bar" class="floating-tool-bar">
+        <span class="tool-title">✂️ 剖切:</span>
+        <button class="btn active" id="sec-axis-x" data-axis="x">X轴</button>
+        <button class="btn" id="sec-axis-y" data-axis="y">Y轴</button>
+        <button class="btn" id="sec-axis-z" data-axis="z">Z轴</button>
+        <input type="range" id="sec-slider" min="0" max="100" value="50">
+        <button class="btn" id="sec-invert">反向</button>
+        <button class="btn" id="btn-section-close">关闭</button>
     </div>
 
     <!-- HUD 信息统计小卡片 -->

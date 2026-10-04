@@ -19,6 +19,20 @@ class ModelPeekViewer {
         this.modelCenter = new THREE.Vector3();
         this.modelRadius = 100;
 
+        // Measurement & Section Tools
+        this.isMeasuring = false;
+        this.measurePoints = [];
+        this.measureMarkers = [];
+        this.measureLine = null;
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+
+        this.isSectioning = false;
+        this.sectionAxis = 'x';
+        this.sectionInvert = false;
+        this.sectionSliderVal = 50;
+        this.clipPlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+
         this.init();
         this.setupEventListeners();
         this.checkUrlParameters();
@@ -47,6 +61,7 @@ class ModelPeekViewer {
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
         this.renderer.toneMappingExposure = 1.1;
+        this.renderer.localClippingEnabled = true;
         this.container.appendChild(this.renderer.domElement);
 
         // 4. OrbitControls
@@ -112,8 +127,17 @@ class ModelPeekViewer {
 
     // Load 3D model from URL / local file path
     loadModel(filePath) {
-        this.showLoader(`加载中: ${filePath.split(/[\/\\]/).pop()}...`);
-        const ext = filePath.split('.').pop().toLowerCase();
+        let fileUrl = filePath;
+        if (!fileUrl.startsWith('file://') && !fileUrl.startsWith('http://') && !fileUrl.startsWith('https://')) {
+            fileUrl = fileUrl.replace(/\\/g, '/');
+            if (/^[a-zA-Z]:/.test(fileUrl)) {
+                fileUrl = 'file:///' + fileUrl;
+            }
+        }
+
+        const fileName = filePath.split(/[\/\\]/).pop();
+        this.showLoader(`加载中: ${fileName}...`);
+        const ext = fileName.split('.').pop().toLowerCase();
 
         const onProgress = (xhr) => {
             if (xhr.lengthComputable) {
@@ -131,7 +155,7 @@ class ModelPeekViewer {
         try {
             switch (ext) {
                 case 'stl':
-                    new THREE.STLLoader().load(filePath, (geometry) => {
+                    new THREE.STLLoader().load(fileUrl, (geometry) => {
                         const material = this.createDefaultMaterial();
                         const mesh = new THREE.Mesh(geometry, material);
                         this.setModel(mesh, filePath);
@@ -139,20 +163,57 @@ class ModelPeekViewer {
                     break;
 
                 case 'obj':
-                    new THREE.OBJLoader().load(filePath, (object) => {
+                    new THREE.OBJLoader().load(fileUrl, (object) => {
                         this.setModel(object, filePath);
                     }, onProgress, onError);
                     break;
 
                 case 'glb':
                 case 'gltf':
-                    new THREE.GLTFLoader().load(filePath, (gltf) => {
+                    new THREE.GLTFLoader().load(fileUrl, (gltf) => {
                         this.setModel(gltf.scene, filePath);
                     }, onProgress, onError);
                     break;
 
                 case '3mf':
-                    new THREE.ThreeMFLoader().load(filePath, (object) => {
+                    new THREE.ThreeMFLoader().load(fileUrl, (object) => {
+                        this.setModel(object, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case 'fbx':
+                    new THREE.FBXLoader().load(fileUrl, (object) => {
+                        this.setModel(object, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case 'ply':
+                    new THREE.PLYLoader().load(fileUrl, (geometry) => {
+                        let material;
+                        if (geometry.hasAttribute('color')) {
+                            material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.2, side: THREE.DoubleSide });
+                        } else {
+                            material = this.createDefaultMaterial();
+                        }
+                        const mesh = new THREE.Mesh(geometry, material);
+                        this.setModel(mesh, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case 'gcode':
+                    new THREE.GCodeLoader().load(fileUrl, (object) => {
+                        this.setModel(object, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case 'dae':
+                    new THREE.ColladaLoader().load(fileUrl, (collada) => {
+                        this.setModel(collada.scene, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case '3ds':
+                    new THREE.TDSLoader().load(fileUrl, (object) => {
                         this.setModel(object, filePath);
                     }, onProgress, onError);
                     break;
@@ -198,6 +259,10 @@ class ModelPeekViewer {
                     } else if (child.geometry.attributes && child.geometry.attributes.position) {
                         faceCount += child.geometry.attributes.position.count / 3;
                     }
+                }
+            } else if (child.isLine || child.isLineSegments) {
+                if (child.geometry && child.geometry.attributes && child.geometry.attributes.position) {
+                    vertexCount += child.geometry.attributes.position.count;
                 }
             }
         });
@@ -354,6 +419,51 @@ class ModelPeekViewer {
             fitBtn.addEventListener('click', () => this.fitView());
         }
 
+        // Measurement button
+        const measureBtn = document.getElementById('btn-measure');
+        if (measureBtn) {
+            measureBtn.addEventListener('click', () => this.toggleMeasure());
+        }
+        const measureClearBtn = document.getElementById('btn-measure-clear');
+        if (measureClearBtn) {
+            measureClearBtn.addEventListener('click', () => this.clearMeasure());
+        }
+        const measureCloseBtn = document.getElementById('btn-measure-close');
+        if (measureCloseBtn) {
+            measureCloseBtn.addEventListener('click', () => this.toggleMeasure(false));
+        }
+
+        // Section button & controls
+        const sectionBtn = document.getElementById('btn-section');
+        if (sectionBtn) {
+            sectionBtn.addEventListener('click', () => this.toggleSection());
+        }
+        document.querySelectorAll('#section-bar [data-axis]').forEach(b => {
+            b.addEventListener('click', () => this.setSectionAxis(b.dataset.axis));
+        });
+        const secSlider = document.getElementById('sec-slider');
+        if (secSlider) {
+            secSlider.addEventListener('input', (e) => {
+                this.sectionSliderVal = parseFloat(e.target.value);
+                this.updateSectionPlane();
+            });
+        }
+        const secInvert = document.getElementById('sec-invert');
+        if (secInvert) {
+            secInvert.addEventListener('click', () => {
+                this.sectionInvert = !this.sectionInvert;
+                secInvert.classList.toggle('active', this.sectionInvert);
+                this.updateSectionPlane();
+            });
+        }
+        const secCloseBtn = document.getElementById('btn-section-close');
+        if (secCloseBtn) {
+            secCloseBtn.addEventListener('click', () => this.toggleSection(false));
+        }
+
+        // Canvas click for measuring
+        this.renderer.domElement.addEventListener('pointerdown', (e) => this.onCanvasClick(e));
+
         // Drag & Drop local file support
         window.addEventListener('dragover', (e) => e.preventDefault());
         window.addEventListener('drop', (e) => {
@@ -376,6 +486,156 @@ class ModelPeekViewer {
                 }
             });
         }
+    }
+
+    toggleMeasure(enable) {
+        this.isMeasuring = (enable !== undefined) ? enable : !this.isMeasuring;
+        const bar = document.getElementById('measure-bar');
+        const btn = document.getElementById('btn-measure');
+        if (this.isMeasuring) {
+            bar.classList.add('active');
+            btn.classList.add('active');
+            this.clearMeasure();
+        } else {
+            bar.classList.remove('active');
+            btn.classList.remove('active');
+            this.clearMeasure();
+        }
+    }
+
+    clearMeasure() {
+        this.measurePoints = [];
+        this.measureMarkers.forEach(m => this.scene.remove(m));
+        this.measureMarkers = [];
+        if (this.measureLine) {
+            this.scene.remove(this.measureLine);
+            this.measureLine = null;
+        }
+        const res = document.getElementById('measure-result');
+        if (res) res.innerText = "点击模型拾取两点";
+    }
+
+    onCanvasClick(event) {
+        if (!this.isMeasuring || !this.currentModel) return;
+
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObject(this.currentModel, true);
+
+        if (intersects.length > 0) {
+            const pt = intersects[0].point;
+            this.addMeasurePoint(pt);
+        }
+    }
+
+    addMeasurePoint(pt) {
+        if (this.measurePoints.length >= 2) {
+            this.clearMeasure();
+        }
+
+        this.measurePoints.push(pt);
+
+        const markerGeom = new THREE.SphereGeometry(this.modelRadius * 0.015, 16, 16);
+        const markerMat = new THREE.MeshBasicMaterial({ color: 0xebcb8b });
+        const marker = new THREE.Mesh(markerGeom, markerMat);
+        marker.position.copy(pt);
+        this.scene.add(marker);
+        this.measureMarkers.push(marker);
+
+        if (this.measurePoints.length === 2) {
+            const p1 = this.measurePoints[0];
+            const p2 = this.measurePoints[1];
+            const dist = p1.distanceTo(p2);
+            const dx = Math.abs(p2.x - p1.x);
+            const dy = Math.abs(p2.y - p1.y);
+            const dz = Math.abs(p2.z - p1.z);
+
+            const lineGeom = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xa3be8c, linewidth: 2 });
+            this.measureLine = new THREE.Line(lineGeom, lineMat);
+            this.scene.add(this.measureLine);
+
+            const res = document.getElementById('measure-result');
+            if (res) {
+                res.innerText = `${dist.toFixed(2)} mm (ΔX: ${dx.toFixed(2)}, ΔY: ${dy.toFixed(2)}, ΔZ: ${dz.toFixed(2)})`;
+            }
+        } else {
+            const res = document.getElementById('measure-result');
+            if (res) res.innerText = "已拾取第 1 点，请点击第 2 点...";
+        }
+    }
+
+    toggleSection(enable) {
+        this.isSectioning = (enable !== undefined) ? enable : !this.isSectioning;
+        const bar = document.getElementById('section-bar');
+        const btn = document.getElementById('btn-section');
+        if (this.isSectioning) {
+            bar.classList.add('active');
+            btn.classList.add('active');
+            this.updateSectionPlane();
+        } else {
+            bar.classList.remove('active');
+            btn.classList.remove('active');
+            this.disableSectionPlane();
+        }
+    }
+
+    setSectionAxis(axis) {
+        this.sectionAxis = axis;
+        document.querySelectorAll('#section-bar [data-axis]').forEach(b => b.classList.remove('active'));
+        const activeBtn = document.querySelector(`#section-bar [data-axis="${axis}"]`);
+        if (activeBtn) activeBtn.classList.add('active');
+        this.updateSectionPlane();
+    }
+
+    updateSectionPlane() {
+        if (!this.modelBBox || !this.isSectioning) return;
+
+        let normal = new THREE.Vector3();
+        let minVal = 0, maxVal = 0;
+        if (this.sectionAxis === 'x') {
+            normal.set(this.sectionInvert ? -1 : 1, 0, 0);
+            minVal = this.modelBBox.min.x;
+            maxVal = this.modelBBox.max.x;
+        } else if (this.sectionAxis === 'y') {
+            normal.set(0, this.sectionInvert ? -1 : 1, 0);
+            minVal = this.modelBBox.min.y;
+            maxVal = this.modelBBox.max.y;
+        } else if (this.sectionAxis === 'z') {
+            normal.set(0, 0, this.sectionInvert ? -1 : 1);
+            minVal = this.modelBBox.min.z;
+            maxVal = this.modelBBox.max.z;
+        }
+
+        const t = this.sectionSliderVal / 100.0;
+        const currentCoord = minVal + (maxVal - minVal) * t;
+
+        const constant = -(normal.x * (this.sectionAxis === 'x' ? currentCoord : 0) +
+                           normal.y * (this.sectionAxis === 'y' ? currentCoord : 0) +
+                           normal.z * (this.sectionAxis === 'z' ? currentCoord : 0));
+
+        this.clipPlane.normal.copy(normal);
+        this.clipPlane.constant = constant;
+
+        this.applyClippingPlanes([this.clipPlane]);
+    }
+
+    disableSectionPlane() {
+        this.applyClippingPlanes([]);
+    }
+
+    applyClippingPlanes(planes) {
+        if (!this.currentModel) return;
+        this.currentModel.traverse((child) => {
+            if (child.isMesh && child.material) {
+                child.material.clippingPlanes = planes;
+                child.material.clipShadows = true;
+                child.material.needsUpdate = true;
+            }
+        });
     }
 
     checkUrlParameters() {

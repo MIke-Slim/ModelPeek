@@ -192,6 +192,86 @@ bool LoadOBJ(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB,
     return !tris.empty();
 }
 
+// Stanford PLY parser (ASCII & basic Little Endian)
+bool LoadPLY(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"r");
+    if (!f) return false;
+
+    char line[256];
+    if (!fgets(line, sizeof(line), f) || strncmp(line, "ply", 3) != 0) {
+        fclose(f);
+        return false;
+    }
+
+    int numVerts = 0;
+    int numFaces = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "element vertex", 14) == 0) {
+            sscanf(line + 14, "%d", &numVerts);
+        } else if (strncmp(line, "element face", 12) == 0) {
+            sscanf(line + 12, "%d", &numFaces);
+        } else if (strncmp(line, "end_header", 10) == 0) {
+            break;
+        }
+    }
+
+    if (numVerts <= 0) {
+        fclose(f);
+        return false;
+    }
+
+    std::vector<Vec3> verts;
+    verts.reserve(numVerts);
+
+    for (int i = 0; i < numVerts; ++i) {
+        Vec3 pt;
+        if (fscanf(f, "%f %f %f", &pt.x, &pt.y, &pt.z) == 3) {
+            char rest[256];
+            fgets(rest, sizeof(rest), f);
+            verts.push_back(pt);
+            minB.x = std::min(minB.x, pt.x);
+            minB.y = std::min(minB.y, pt.y);
+            minB.z = std::min(minB.z, pt.z);
+            maxB.x = std::max(maxB.x, pt.x);
+            maxB.y = std::max(maxB.y, pt.y);
+            maxB.z = std::max(maxB.z, pt.z);
+        }
+    }
+
+    for (int i = 0; i < numFaces; ++i) {
+        int n = 0;
+        if (fscanf(f, "%d", &n) == 1 && n >= 3) {
+            std::vector<int> idx(n);
+            for (int j = 0; j < n; ++j) {
+                fscanf(f, "%d", &idx[j]);
+            }
+            char rest[256];
+            fgets(rest, sizeof(rest), f);
+
+            for (int j = 1; j + 1 < n; ++j) {
+                int i0 = idx[0], i1 = idx[j], i2 = idx[j + 1];
+                if (i0 < (int)verts.size() && i1 < (int)verts.size() && i2 < (int)verts.size()) {
+                    Triangle tri;
+                    tri.v[0] = verts[i0];
+                    tri.v[1] = verts[i1];
+                    tri.v[2] = verts[i2];
+                    Vec3 e1 = tri.v[1] - tri.v[0];
+                    Vec3 e2 = tri.v[2] - tri.v[0];
+                    tri.normal = e1.cross(e2).normalize();
+                    tris.push_back(tri);
+                }
+            }
+        }
+    }
+    fclose(f);
+    return !tris.empty();
+}
+
 // 256x256 Soft Rasterizer for CAD Thumbnails
 void RenderThumbnail(const std::vector<Triangle>& tris, const Vec3& minB, const Vec3& maxB, int W, int H, const std::wstring& outBmp) {
     std::vector<uint32_t> pixels(W * H, 0xFF1E222B); // CAD dark slate background
@@ -403,10 +483,11 @@ int main(int, char*[]) {
         std::wstring meshToRender = input;
         std::wstring tempStl = L"";
 
-        if (ext == L".step" || ext == L".stp") {
+        bool isCad = (ext == L".step" || ext == L".stp" || ext == L".iges" || ext == L".igs" || ext == L".brep" || ext == L".brp");
+        if (isCad) {
             tempStl = output + L".tmp.stl";
             if (!RunCadConverter(input, tempStl)) {
-                std::wcerr << L"Failed to convert STEP to mesh" << std::endl;
+                std::wcerr << L"Failed to convert CAD model to mesh" << std::endl;
                 LocalFree(argv);
                 return 1;
             }
@@ -419,6 +500,8 @@ int main(int, char*[]) {
             loaded = LoadSTL(meshToRender, tris, minB, maxB);
         } else if (ext == L".obj") {
             loaded = LoadOBJ(meshToRender, tris, minB, maxB);
+        } else if (ext == L".ply") {
+            loaded = LoadPLY(meshToRender, tris, minB, maxB);
         }
 
         if (!tempStl.empty()) {

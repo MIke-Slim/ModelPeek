@@ -251,7 +251,8 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
         for (auto& c : ext) c = towlower(c);
     }
 
-    if (ext == L".step" || ext == L".stp") {
+    bool isCadBrep = (ext == L".step" || ext == L".stp" || ext == L".iges" || ext == L".igs" || ext == L".brep" || ext == L".brp");
+    if (isCadBrep) {
         std::wstring lowDir = GetLocalLowDir();
         if (!lowDir.empty()) {
             std::wstring cacheDir = lowDir + L"\\cache\\preview_mesh";
@@ -293,10 +294,10 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
             }
 
             if (PathFileExistsW(cachedStl.c_str())) {
-                LogTrace(L"PreviewHandler: STEP converted successfully to: " + cachedStl);
+                LogTrace(L"PreviewHandler: CAD converted successfully to: " + cachedStl);
                 return cachedStl;
             } else {
-                LogTrace(L"PreviewHandler: STEP conversion FAILED to produce: " + cachedStl);
+                LogTrace(L"PreviewHandler: CAD conversion FAILED to produce: " + cachedStl);
             }
         }
     }

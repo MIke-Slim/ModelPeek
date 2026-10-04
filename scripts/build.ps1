@@ -46,7 +46,8 @@ Write-Host "  -> Success: dist\ModelPeekWorker.exe" -ForegroundColor Green
 
 # 3. Synchronize Web Viewer Assets and Scripts
 Write-Host "[3/3] Synchronizing Viewer and Worker scripts to dist..." -ForegroundColor Yellow
-Copy-Item -Recurse -Force "$Root\src\viewer" "$Root\dist\viewer"
+if (-not (Test-Path "$Root\dist\viewer")) { New-Item -ItemType Directory -Path "$Root\dist\viewer" | Out-Null }
+Copy-Item -Recurse -Force "$Root\src\viewer\*" "$Root\dist\viewer"
 Copy-Item -Force "$Root\src\worker\cad_processor.py" "$Root\dist\cad_processor.py"
 Write-Host "  -> Success: dist\viewer and cad_processor.py updated" -ForegroundColor Green
 

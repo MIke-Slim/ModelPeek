@@ -187,6 +187,37 @@ class ModelPeekViewer {
                     }, onProgress, onError);
                     break;
 
+                case 'ply':
+                    new THREE.PLYLoader().load(fileUrl, (geometry) => {
+                        let material;
+                        if (geometry.hasAttribute('color')) {
+                            material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.2, side: THREE.DoubleSide });
+                        } else {
+                            material = this.createDefaultMaterial();
+                        }
+                        const mesh = new THREE.Mesh(geometry, material);
+                        this.setModel(mesh, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case 'gcode':
+                    new THREE.GCodeLoader().load(fileUrl, (object) => {
+                        this.setModel(object, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case 'dae':
+                    new THREE.ColladaLoader().load(fileUrl, (collada) => {
+                        this.setModel(collada.scene, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case '3ds':
+                    new THREE.TDSLoader().load(fileUrl, (object) => {
+                        this.setModel(object, filePath);
+                    }, onProgress, onError);
+                    break;
+
                 default:
                     this.hideLoader();
                     this.showToast(`暂不支持直接在视口解析 .${ext}，尝试由 Worker 转换后预览`);
@@ -228,6 +259,10 @@ class ModelPeekViewer {
                     } else if (child.geometry.attributes && child.geometry.attributes.position) {
                         faceCount += child.geometry.attributes.position.count / 3;
                     }
+                }
+            } else if (child.isLine || child.isLineSegments) {
+                if (child.geometry && child.geometry.attributes && child.geometry.attributes.position) {
+                    vertexCount += child.geometry.attributes.position.count;
                 }
             }
         });

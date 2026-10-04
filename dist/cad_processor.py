@@ -16,12 +16,19 @@ except ImportError as e:
     print(f"ERROR: Cannot import OpenCASCADE / Part: {e}", file=sys.stderr)
     sys.exit(1)
 
-def convert_step_to_stl(step_path, out_stl_path, deflection=0.1):
+def convert_cad_to_stl(cad_path, out_stl_path, deflection=0.1):
     shape = Part.Shape()
-    shape.read(step_path)
-    # Perform B-Rep meshing and export
+    shape.read(cad_path)
+    if len(shape.Faces) == 0 and len(shape.Edges) > 0:
+        # If shape is only wireframe edges (e.g. 2D/3D curve geometry), create a visible pipe/mesh
+        wires = shape.Wires
+        if wires:
+            try:
+                shape = shape.makeOffsetShape(0.2, 0.01)
+            except Exception:
+                pass
     shape.exportStl(out_stl_path)
-    return True
+    return os.path.exists(out_stl_path) and os.path.getsize(out_stl_path) > 0
 
 def get_cad_info(file_path):
     shape = Part.Shape()
@@ -40,24 +47,42 @@ def get_cad_info(file_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: cad_processor.py <convert|info> <input_file> [output_file]")
+        print("Usage: cad_processor.py <convert|info|export> <input_file> [output_file]")
         sys.exit(1)
 
     cmd = sys.argv[1].lower()
-    input_file = sys.argv[2]
+    input_file = os.path.abspath(sys.argv[2])
 
     if cmd == "convert":
         if len(sys.argv) < 4:
             print("Missing output file argument", file=sys.stderr)
             sys.exit(1)
-        out_file = sys.argv[3]
-        if convert_step_to_stl(input_file, out_file):
+        out_file = os.path.abspath(sys.argv[3])
+        if convert_cad_to_stl(input_file, out_file):
             print(f"SUCCESS: Converted {input_file} -> {out_file}")
             sys.exit(0)
         else:
+            print(f"FAILED: Conversion failed for {input_file}", file=sys.stderr)
             sys.exit(1)
+
+    elif cmd == "export":
+        if len(sys.argv) < 4:
+            sys.exit(1)
+        out_file = os.path.abspath(sys.argv[3])
+        shape = Part.Shape()
+        shape.read(input_file)
+        ext = os.path.splitext(out_file)[1].lower()
+        if ext in [".iges", ".igs"]:
+            shape.exportIges(out_file)
+        elif ext in [".brep", ".brp"]:
+            shape.exportBrep(out_file)
+        elif ext == ".step" or ext == ".stp":
+            shape.exportStep(out_file)
+        print(f"SUCCESS: Exported {out_file}")
+        sys.exit(0)
 
     elif cmd == "info":
         info = get_cad_info(input_file)
         print(json.dumps(info))
         sys.exit(0)
+

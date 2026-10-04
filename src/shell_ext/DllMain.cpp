@@ -70,32 +70,48 @@ static void DeleteRegTreeIfExists(HKEY root, LPCWSTR subKey) {
 
 // Supported file extensions
 static const LPCWSTR SUPPORTED_EXTS[] = {
-    L".step", L".stp", L".stl", L".obj", L".fbx", L".glb", L".gltf", L".3mf"
+    // Standard CAD & Mesh
+    L".step", L".stp", L".stl", L".obj", L".fbx", L".glb", L".gltf", L".3mf",
+    // Tier 1 (Industrial CAD & Scanning):
+    L".iges", L".igs", L".brep", L".brp", L".ply",
+    // Tier 2 (Toolpath & CG):
+    L".gcode", L".dae", L".3ds"
 };
+
+static HKEY GetRegistryRoot() {
+    HKEY testKey = NULL;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Classes", 0, KEY_WRITE, &testKey) == ERROR_SUCCESS) {
+        RegCloseKey(testKey);
+        return HKEY_LOCAL_MACHINE;
+    }
+    return HKEY_CURRENT_USER;
+}
 
 STDAPI DllRegisterServer() {
     WCHAR dllPath[MAX_PATH];
     GetModuleFileNameW(g_hInst, dllPath, MAX_PATH);
     LogTrace(std::wstring(L"DllRegisterServer started for: ") + dllPath);
 
+    HKEY root = GetRegistryRoot();
+
     // 1. Register Thumbnail Provider CLSID
     std::wstring thumbClsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(CLSID_THUMBNAIL_STRING);
-    SetRegString(HKEY_LOCAL_MACHINE, thumbClsidKey.c_str(), NULL, L"ModelPeek Thumbnail Provider");
-    SetRegString(HKEY_LOCAL_MACHINE, (thumbClsidKey + L"\\InprocServer32").c_str(), NULL, dllPath);
-    SetRegString(HKEY_LOCAL_MACHINE, (thumbClsidKey + L"\\InprocServer32").c_str(), L"ThreadingModel", L"Apartment");
-    SetRegDword(HKEY_LOCAL_MACHINE, thumbClsidKey.c_str(), L"DisableProcessIsolation", 1);
+    SetRegString(root, thumbClsidKey.c_str(), NULL, L"ModelPeek Thumbnail Provider");
+    SetRegString(root, (thumbClsidKey + L"\\InprocServer32").c_str(), NULL, dllPath);
+    SetRegString(root, (thumbClsidKey + L"\\InprocServer32").c_str(), L"ThreadingModel", L"Apartment");
+    SetRegDword(root, thumbClsidKey.c_str(), L"DisableProcessIsolation", 1);
 
     // 2. Register Preview Handler CLSID
     std::wstring prevClsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(CLSID_PREVIEW_STRING);
-    SetRegString(HKEY_LOCAL_MACHINE, prevClsidKey.c_str(), NULL, L"ModelPeek Preview Handler");
-    SetRegString(HKEY_LOCAL_MACHINE, prevClsidKey.c_str(), L"DisplayName", L"ModelPeek 3D Previewer");
-    SetRegString(HKEY_LOCAL_MACHINE, prevClsidKey.c_str(), L"AppID", PREVHOST_APPID_STRING);
-    SetRegString(HKEY_LOCAL_MACHINE, (prevClsidKey + L"\\InprocServer32").c_str(), NULL, dllPath);
-    SetRegString(HKEY_LOCAL_MACHINE, (prevClsidKey + L"\\InprocServer32").c_str(), L"ThreadingModel", L"Apartment");
-    SetRegDword(HKEY_LOCAL_MACHINE, prevClsidKey.c_str(), L"DisableProcessIsolation", 1);
+    SetRegString(root, prevClsidKey.c_str(), NULL, L"ModelPeek Preview Handler");
+    SetRegString(root, prevClsidKey.c_str(), L"DisplayName", L"ModelPeek 3D Previewer");
+    SetRegString(root, prevClsidKey.c_str(), L"AppID", PREVHOST_APPID_STRING);
+    SetRegString(root, (prevClsidKey + L"\\InprocServer32").c_str(), NULL, dllPath);
+    SetRegString(root, (prevClsidKey + L"\\InprocServer32").c_str(), L"ThreadingModel", L"Apartment");
+    SetRegDword(root, prevClsidKey.c_str(), L"DisableProcessIsolation", 1);
 
     // 3. Register to Windows PreviewHandlers list
-    SetRegString(HKEY_LOCAL_MACHINE,
+    SetRegString(root,
         L"Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
         CLSID_PREVIEW_STRING,
         L"ModelPeek 3D Previewer");
@@ -103,10 +119,10 @@ STDAPI DllRegisterServer() {
     // 4. Associate extensions
     for (LPCWSTR ext : SUPPORTED_EXTS) {
         std::wstring shellExThumb = std::wstring(L"Software\\Classes\\") + ext + L"\\ShellEx\\{e357fccd-a995-4576-b01f-234630154e96}";
-        SetRegString(HKEY_LOCAL_MACHINE, shellExThumb.c_str(), NULL, CLSID_THUMBNAIL_STRING);
+        SetRegString(root, shellExThumb.c_str(), NULL, CLSID_THUMBNAIL_STRING);
 
         std::wstring shellExPrev = std::wstring(L"Software\\Classes\\") + ext + L"\\ShellEx\\{8895b1c6-b41f-4c1c-a562-0d564250836f}";
-        SetRegString(HKEY_LOCAL_MACHINE, shellExPrev.c_str(), NULL, CLSID_PREVIEW_STRING);
+        SetRegString(root, shellExPrev.c_str(), NULL, CLSID_PREVIEW_STRING);
     }
 
     // Notify Explorer of shell changes
@@ -116,24 +132,26 @@ STDAPI DllRegisterServer() {
 }
 
 STDAPI DllUnregisterServer() {
+    HKEY root = GetRegistryRoot();
+
     std::wstring thumbClsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(CLSID_THUMBNAIL_STRING);
-    DeleteRegTreeIfExists(HKEY_LOCAL_MACHINE, thumbClsidKey.c_str());
+    DeleteRegTreeIfExists(root, thumbClsidKey.c_str());
 
     std::wstring prevClsidKey = L"Software\\Classes\\CLSID\\" + std::wstring(CLSID_PREVIEW_STRING);
-    DeleteRegTreeIfExists(HKEY_LOCAL_MACHINE, prevClsidKey.c_str());
+    DeleteRegTreeIfExists(root, prevClsidKey.c_str());
 
     HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers", 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+    if (RegOpenKeyExW(root, L"Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers", 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
         RegDeleteValueW(hKey, CLSID_PREVIEW_STRING);
         RegCloseKey(hKey);
     }
 
     for (LPCWSTR ext : SUPPORTED_EXTS) {
         std::wstring shellExThumb = std::wstring(L"Software\\Classes\\") + ext + L"\\ShellEx\\{e357fccd-a995-4576-b01f-234630154e96}";
-        DeleteRegTreeIfExists(HKEY_LOCAL_MACHINE, shellExThumb.c_str());
+        DeleteRegTreeIfExists(root, shellExThumb.c_str());
 
         std::wstring shellExPrev = std::wstring(L"Software\\Classes\\") + ext + L"\\ShellEx\\{8895b1c6-b41f-4c1c-a562-0d564250836f}";
-        DeleteRegTreeIfExists(HKEY_LOCAL_MACHINE, shellExPrev.c_str());
+        DeleteRegTreeIfExists(root, shellExPrev.c_str());
     }
 
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
