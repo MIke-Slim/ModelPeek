@@ -17,7 +17,7 @@ if (-not (Test-Path $Gxx)) {
 Stop-Process -Name prevhost -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 200
 Write-Host "[1/3] Compiling ModelPeekExtension.dll..." -ForegroundColor Yellow
-& $Gxx -shared -O2 -march=x86-64 -std=c++20 `
+& $Gxx -shared -O2 -march=x86-64 -std=c++20 -DUNICODE -D_UNICODE `
     -I "$Root\src\shell_ext" -I "$Root\src\shell_ext\webview2" `
     "$Root\src\shell_ext\DllMain.cpp" `
     "$Root\src\shell_ext\ModelPeekThumbnailProvider.cpp" `

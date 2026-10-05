@@ -1,3 +1,10 @@
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+#define WIN32_LEAN_AND_MEAN
 #include "ModelPeekPreviewHandler.h"
 #include "Guids.h"
 #include "WebView2Callbacks.h"
@@ -158,10 +165,13 @@ STDMETHODIMP ModelPeekPreviewHandler::GetSite(REFIID riid, void **ppvSite) {
 }
 
 STDMETHODIMP ModelPeekPreviewHandler::SetWindow(HWND hwnd, const RECT *prc) {
-    LogTrace(L"PreviewHandler::SetWindow called");
     if (!hwnd || !prc) return E_INVALIDARG;
     m_hwndParent = hwnd;
     m_rcParent = *prc;
+    std::wstringstream ss;
+    ss << L"PreviewHandler::SetWindow: hwnd=" << (UINT_PTR)hwnd 
+       << L" rc={" << prc->left << L"," << prc->top << L"," << prc->right << L"," << prc->bottom << L"}";
+    LogTrace(ss.str());
     if (m_hwndPreview) {
         SetParent(m_hwndPreview, m_hwndParent);
         SetRect(prc);
@@ -174,9 +184,15 @@ STDMETHODIMP ModelPeekPreviewHandler::SetRect(const RECT *prc) {
     m_rcParent = *prc;
     int w = m_rcParent.right - m_rcParent.left;
     int h = m_rcParent.bottom - m_rcParent.top;
+    if (w <= 0) w = 200;
+    if (h <= 0) h = 200;
+
+    std::wstringstream ss;
+    ss << L"PreviewHandler::SetRect: w=" << w << L" h=" << h;
+    LogTrace(ss.str());
 
     if (m_hwndPreview) {
-        SetWindowPos(m_hwndPreview, NULL, m_rcParent.left, m_rcParent.top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(m_hwndPreview, NULL, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     if (m_controller) {
         RECT bounds = { 0, 0, w, h };
@@ -188,7 +204,7 @@ STDMETHODIMP ModelPeekPreviewHandler::SetRect(const RECT *prc) {
 LRESULT CALLBACK ModelPeekPreviewHandler::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_SIZE: {
-            ModelPeekPreviewHandler* pThis = (ModelPeekPreviewHandler*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+            ModelPeekPreviewHandler* pThis = (ModelPeekPreviewHandler*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
             if (pThis && pThis->m_controller) {
                 RECT rc;
                 GetClientRect(hwnd, &rc);
@@ -199,35 +215,52 @@ LRESULT CALLBACK ModelPeekPreviewHandler::WndProc(HWND hwnd, UINT uMsg, WPARAM w
         case WM_ERASEBKGND:
             return 1;
     }
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    return DefWindowProcW(hwnd, uMsg, wParam, lParam);
 }
 
 bool ModelPeekPreviewHandler::CreateChildWindow() {
     LogTrace(L"PreviewHandler::CreateChildWindow starting...");
     WNDCLASSEXW wc = { sizeof(wc) };
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = g_hInst;
     wc.lpszClassName = PREVIEW_WND_CLASS;
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    RegisterClassExW(&wc);
+    if (!RegisterClassExW(&wc)) {
+        DWORD regErr = GetLastError();
+        if (regErr != ERROR_CLASS_ALREADY_EXISTS) {
+            LogTrace(L"RegisterClassExW err=" + std::to_wstring(regErr));
+        }
+    }
 
     int w = m_rcParent.right - m_rcParent.left;
     int h = m_rcParent.bottom - m_rcParent.top;
+    if (w <= 0) w = 300;
+    if (h <= 0) h = 300;
+
+    std::wstringstream ss;
+    ss << L"CreateWindowExW: parent=" << (UINT_PTR)m_hwndParent
+       << L" IsWindow=" << IsWindow(m_hwndParent)
+       << L" w=" << w << L" h=" << h
+       << L" g_hInst=" << (UINT_PTR)g_hInst;
+    LogTrace(ss.str());
 
     m_hwndPreview = CreateWindowExW(
         0, PREVIEW_WND_CLASS, L"ModelPeekPreview",
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
-        m_rcParent.left, m_rcParent.top, w, h,
+        0, 0, w, h,
         m_hwndParent, NULL, g_hInst, NULL
     );
 
     if (m_hwndPreview) {
-        SetWindowLongPtr(m_hwndPreview, GWLP_USERDATA, (LONG_PTR)this);
+        SetWindowLongPtrW(m_hwndPreview, GWLP_USERDATA, (LONG_PTR)this);
         LogTrace(L"PreviewHandler::CreateChildWindow created HWND successfully");
         return true;
     }
-    LogTrace(L"PreviewHandler::CreateChildWindow CreateWindowExW FAILED");
+    DWORD err = GetLastError();
+    LogTrace(L"PreviewHandler::CreateChildWindow CreateWindowExW FAILED err=" + std::to_wstring(err));
     return false;
 }
 
@@ -240,6 +273,7 @@ std::wstring ModelPeekPreviewHandler::GetViewerHtmlPath() {
     if (!PathFileExistsW(viewerPath.c_str())) {
         viewerPath = std::wstring(modulePath) + L"\\..\\src\\viewer\\index.html";
     }
+    LogTrace(L"Viewer HTML path: " + viewerPath + L" exists=" + std::to_wstring(PathFileExistsW(viewerPath.c_str())));
     return viewerPath;
 }
 
@@ -362,6 +396,13 @@ bool ModelPeekPreviewHandler::InitWebView2() {
             m_controller->put_Bounds(clientRc);
             m_controller->put_IsVisible(TRUE);
 
+            ICoreWebView2Controller2* ctrl2 = nullptr;
+            if (SUCCEEDED(m_controller->QueryInterface(IID_ICoreWebView2Controller2, (void**)&ctrl2)) && ctrl2) {
+                COREWEBVIEW2_COLOR darkBg = { 255, 30, 34, 43 };
+                ctrl2->put_DefaultBackgroundColor(darkBg);
+                ctrl2->Release();
+            }
+
             ICoreWebView2Settings* settings = nullptr;
             if (m_webview && SUCCEEDED(m_webview->get_Settings(&settings)) && settings) {
                 settings->put_IsStatusBarEnabled(FALSE);
@@ -374,7 +415,12 @@ bool ModelPeekPreviewHandler::InitWebView2() {
             std::wstring viewerPath = GetViewerHtmlPath();
 
             std::wstringstream url;
-            url << L"file:///" << viewerPath << L"?file=";
+            url << L"file:///";
+            for (WCHAR c : viewerPath) {
+                if (c == L'\\') url << L'/';
+                else url << c;
+            }
+            url << L"?file=";
             for (WCHAR c : targetModel) {
                 if (c == L'\\') url << L'/';
                 else if (c == L' ') url << L"%20";
