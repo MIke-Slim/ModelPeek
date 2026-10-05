@@ -8,6 +8,8 @@ tools/*
 *.log
 *.tmp
 *.tmp.*
+*.zip
+release_staging/
 sample_models/*.bmp
 sample_models/*_out.*
 DashScope_*.md
