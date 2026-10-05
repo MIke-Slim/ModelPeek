@@ -22,10 +22,12 @@ if exist "%~dp0ModelPeekExtension.dll" (
     echo   [INFO] ModelPeekExtension.dll not found, skipping.
 )
 
-echo [2/2] Cleaning up preview host process (prevhost.exe)...
+echo [2/3] Cleaning up preview host and QuickLook processes...
 taskkill /f /im prevhost.exe >nul 2>&1
+taskkill /f /im ModelPeekPeek.exe >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "ModelPeekPeek" /f >nul 2>&1
 
-echo.
+echo [3/3] Notifying Windows Shell...
 echo ========================================================
 echo [SUCCESS] ModelPeek has been cleanly removed from system.
 echo ========================================================

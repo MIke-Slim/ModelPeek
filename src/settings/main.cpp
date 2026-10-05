@@ -27,6 +27,7 @@ static const LPCWSTR CLSID_THUMB_KEY = L"{e357fccd-a995-4576-b01f-234630154e96}"
 static const LPCWSTR CLSID_PREV_KEY  = L"{8895b1c6-b41f-4c1c-a562-0d564250836f}";
 static const LPCWSTR CLSID_THUMB_VAL = L"{B5A5C70A-7023-41E9-8CE9-B943B7B3E31A}";
 static const LPCWSTR CLSID_PREV_VAL  = L"{8888E441-A88B-4B9F-8408-A4BD114B3E01}";
+static const LPCWSTR QUICKLOOK_MUTEX = L"ModelPeekPeek_Daemon_Mutex_v2";
 
 struct FormatInfo {
     std::wstring ext;
@@ -36,31 +37,38 @@ struct FormatInfo {
 };
 
 static std::vector<FormatInfo> g_formats = {
-    // CAD
+    // CAD 工业标准格式
     { L".step", L".step (STEP 工业零件)", L"CAD 工业标准格式", NULL },
     { L".stp",  L".stp (STEP 工业装配)", L"CAD 工业标准格式", NULL },
     { L".iges", L".iges (IGES 曲线/实体)", L"CAD 工业标准格式", NULL },
     { L".igs",  L".igs (IGES 模型)", L"CAD 工业标准格式", NULL },
-    { L".brep", L".brep (OpenCASCADE 边界表示)", L"CAD 工业标准格式", NULL },
+    { L".brep", L".brep (OpenCASCADE 边界)", L"CAD 工业标准格式", NULL },
     { L".brp",  L".brp (B-Rep 拓扑模型)", L"CAD 工业标准格式", NULL },
-    // Mesh
-    { L".stl",  L".stl (Stereolithography 三角网格)", L"通用三维网格格式", NULL },
+    { L".dxf",  L".dxf (AutoCAD 二维/三维图纸)", L"CAD 工业标准格式", NULL },
+    // 通用三维网格格式
+    { L".stl",  L".stl (Stereolithography 网格)", L"通用三维网格格式", NULL },
     { L".obj",  L".obj (Wavefront 3D 对象)", L"通用三维网格格式", NULL },
     { L".glb",  L".glb (二进制 glTF 传输模型)", L"通用三维网格格式", NULL },
     { L".gltf", L".gltf (glTF 3D 交换格式)", L"通用三维网格格式", NULL },
-    { L".3mf",  L".3mf (3D Manufacturing 制造格式)", L"通用三维网格格式", NULL },
-    { L".fbx",  L".fbx (Autodesk 多边形与 NURBS)", L"通用三维网格格式", NULL },
-    // Scan & Toolpath & CG
-    { L".ply",  L".ply (Stanford 扫描点云网格)", L"逆向工程与制造格式", NULL },
-    { L".gcode",L".gcode (CNC / 3D 打印切片刀轨)", L"逆向工程与制造格式", NULL },
+    { L".3mf",  L".3mf (3D Manufacturing 制造)", L"通用三维网格格式", NULL },
+    { L".fbx",  L".fbx (Autodesk 多边形与骨骼)", L"通用三维网格格式", NULL },
+    // 逆向工程、扫描与经典格式
+    { L".ply",  L".ply (Stanford 扫描网格)", L"逆向工程与制造格式", NULL },
+    { L".pcd",  L".pcd (Point Cloud 激光点云)", L"逆向工程与制造格式", NULL },
+    { L".gcode",L".gcode (CNC / 3D 打印刀轨)", L"逆向工程与制造格式", NULL },
     { L".dae",  L".dae (Collada 交互式 3D 资产)", L"经典 3D 格式", NULL },
-    { L".3ds",  L".3ds (3D Studio 经典网格模型)", L"经典 3D 格式", NULL }
+    { L".3ds",  L".3ds (3D Studio 经典网格)", L"经典 3D 格式", NULL }
 };
 
 static HWND g_hTab = NULL;
 static HWND g_hPanelFormats = NULL;
 static HWND g_hPanelStatus = NULL;
 static HWND g_hPanelCache = NULL;
+static HWND g_hPanelQuickLook = NULL;
+static HWND g_hCacheInfoText = NULL;
+static HWND g_hQuickLookStatusText = NULL;
+static HWND g_hChkQuickLookAutostart = NULL;
+
 static HFONT g_hFontNormal = NULL;
 static HFONT g_hFontBold = NULL;
 static HFONT g_hFontTitle = NULL;
@@ -94,7 +102,7 @@ bool IsFormatRegistered(const std::wstring& ext) {
         RegCloseKey(hKey);
         if (res == ERROR_SUCCESS) {
             if (_wcsicmp(val, CLSID_THUMB_VAL) == 0) return true;
-            if (wcslen(val) == 0) return false; // Explicitly disabled
+            if (wcslen(val) == 0) return false;
         }
     }
     // Fallback to HKLM
@@ -195,9 +203,55 @@ void ClearCacheFiles() {
 }
 
 void RestartExplorer() {
-    // Terminate prevhost and notify shell
     system("taskkill /f /im prevhost.exe >nul 2>&1");
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
+}
+
+bool IsQuickLookRunning() {
+    HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, QUICKLOOK_MUTEX);
+    if (hMutex) {
+        CloseHandle(hMutex);
+        return true;
+    }
+    return false;
+}
+
+bool IsQuickLookAutostart() {
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        WCHAR val[MAX_PATH] = {0};
+        DWORD size = sizeof(val);
+        LONG res = RegQueryValueExW(hKey, L"ModelPeekPeek", NULL, NULL, (LPBYTE)val, &size);
+        RegCloseKey(hKey);
+        return (res == ERROR_SUCCESS && wcslen(val) > 0);
+    }
+    return false;
+}
+
+void SetQuickLookAutostart(bool enable) {
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        if (enable) {
+            std::wstring peekExe = GetAppDir() + L"\\ModelPeekPeek.exe";
+            std::wstring cmd = L"\"" + peekExe + L"\"";
+            RegSetValueExW(hKey, L"ModelPeekPeek", 0, REG_SZ, (const BYTE*)cmd.c_str(), (DWORD)((cmd.length() + 1) * sizeof(WCHAR)));
+        } else {
+            RegDeleteValueW(hKey, L"ModelPeekPeek");
+        }
+        RegCloseKey(hKey);
+    }
+}
+
+void StartQuickLookProcess() {
+    if (IsQuickLookRunning()) return;
+    std::wstring peekExe = GetAppDir() + L"\\ModelPeekPeek.exe";
+    ShellExecuteW(NULL, L"open", peekExe.c_str(), NULL, NULL, SW_SHOWNORMAL);
+}
+
+void StopQuickLookProcess() {
+    std::wstring peekExe = GetAppDir() + L"\\ModelPeekPeek.exe";
+    ShellExecuteW(NULL, L"open", peekExe.c_str(), L"--stop", NULL, SW_HIDE);
+    system("taskkill /f /im ModelPeekPeek.exe >nul 2>&1");
 }
 
 LRESULT CALLBACK PanelProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -213,27 +267,28 @@ LRESULT CALLBACK PanelProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-// Panel Creation
+// Panel 0: 格式管理
 void CreateFormatsPanel(HWND hParent) {
     g_hPanelFormats = CreateWindowExW(0, L"ModelPeekPanelClass", L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 
-        15, 42, 590, 315, hParent, NULL, GetModuleHandleW(NULL), NULL);
+        15, 42, 595, 315, hParent, NULL, GetModuleHandleW(NULL), NULL);
 
-    HWND hLbl = CreateWindowExW(0, L"STATIC", L"选择由 ModelPeek 接管 3D 缩略图与视口预览的文件格式：", 
-        WS_CHILD | WS_VISIBLE, 10, 5, 570, 20, g_hPanelFormats, NULL, GetModuleHandleW(NULL), NULL);
+    HWND hLbl = CreateWindowExW(0, L"STATIC", L"选择由 ModelPeek 接管 3D 缩略图与视口预览的格式（共 18 种）：", 
+        WS_CHILD | WS_VISIBLE, 10, 4, 575, 20, g_hPanelFormats, NULL, GetModuleHandleW(NULL), NULL);
     SendMessageW(hLbl, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
     int startX1 = 15;
     int startX2 = 300;
-    int startY = 32;
-    int rowH = 24;
+    int startY = 26;
+    int rowH = 21;
+    int half = (int)(g_formats.size() + 1) / 2; // 9 items per column
 
     for (size_t i = 0; i < g_formats.size(); i++) {
-        int x = (i < 8) ? startX1 : startX2;
-        int y = startY + ((int)(i % 8)) * rowH;
+        int x = (i < (size_t)half) ? startX1 : startX2;
+        int y = startY + ((int)(i % half)) * rowH;
 
         HWND hChk = CreateWindowExW(0, L"BUTTON", g_formats[i].label.c_str(),
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-            x, y, 270, 20, g_hPanelFormats, (HMENU)(UINT_PTR)(1000 + i), GetModuleHandleW(NULL), NULL);
+            x, y, 275, 19, g_hPanelFormats, (HMENU)(UINT_PTR)(1000 + i), GetModuleHandleW(NULL), NULL);
         SendMessageW(hChk, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
         SendMessageW(hChk, BM_SETCHECK, IsFormatRegistered(g_formats[i].ext) ? BST_CHECKED : BST_UNCHECKED, 0);
         g_formats[i].hCheckbox = hChk;
@@ -241,25 +296,26 @@ void CreateFormatsPanel(HWND hParent) {
 
     // Buttons
     HWND btnSelectAll = CreateWindowExW(0, L"BUTTON", L"全选", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        15, 235, 75, 26, g_hPanelFormats, (HMENU)100, GetModuleHandleW(NULL), NULL);
+        15, 224, 75, 26, g_hPanelFormats, (HMENU)100, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnSelectAll, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
     HWND btnClearAll = CreateWindowExW(0, L"BUTTON", L"全不选", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        100, 235, 75, 26, g_hPanelFormats, (HMENU)101, GetModuleHandleW(NULL), NULL);
+        100, 224, 75, 26, g_hPanelFormats, (HMENU)101, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnClearAll, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
-    HWND btnApply = CreateWindowExW(0, L"BUTTON", L"💾 保存并应用设置", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-        420, 235, 150, 28, g_hPanelFormats, (HMENU)102, GetModuleHandleW(NULL), NULL);
+    HWND btnApply = CreateWindowExW(0, L"BUTTON", L"💾 保存并应用格式设置", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+        415, 223, 165, 28, g_hPanelFormats, (HMENU)102, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnApply, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-    HWND hHint = CreateWindowExW(0, L"STATIC", L"提示：双击文件仍保持原本的 SolidWorks / NX / Blender 等软件关联，仅开启缩略图与 Alt+P 预览。",
-        WS_CHILD | WS_VISIBLE | SS_LEFT, 15, 272, 560, 36, g_hPanelFormats, NULL, GetModuleHandleW(NULL), NULL);
+    HWND hHint = CreateWindowExW(0, L"STATIC", L"提示：双击文件仍保持原本的 CAD / 3D 软件关联，仅开启缩略图与 Alt+P / 空格键预览。",
+        WS_CHILD | WS_VISIBLE | SS_LEFT, 15, 258, 565, 36, g_hPanelFormats, NULL, GetModuleHandleW(NULL), NULL);
     SendMessageW(hHint, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 }
 
+// Panel 1: 系统体检
 void CreateStatusPanel(HWND hParent) {
     g_hPanelStatus = CreateWindowExW(0, L"ModelPeekPanelClass", L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 
-        15, 42, 590, 315, hParent, NULL, GetModuleHandleW(NULL), NULL);
+        15, 42, 595, 315, hParent, NULL, GetModuleHandleW(NULL), NULL);
 
     HWND hTitle = CreateWindowExW(0, L"STATIC", L"组件状态与系统环境体检", 
         WS_CHILD | WS_VISIBLE, 10, 5, 570, 25, g_hPanelStatus, NULL, GetModuleHandleW(NULL), NULL);
@@ -268,25 +324,27 @@ void CreateStatusPanel(HWND hParent) {
     std::wstring appDir = GetAppDir();
     std::wstring dllPath = appDir + L"\\ModelPeekExtension.dll";
     std::wstring workerPath = appDir + L"\\ModelPeekWorker.exe";
+    std::wstring peekPath = appDir + L"\\ModelPeekPeek.exe";
 
     std::wstringstream ss;
     ss << L"● 安装运行目录: " << appDir << L"\r\n\r\n";
     ss << L"● COM 核心扩展 (ModelPeekExtension.dll): " << (PathFileExistsW(dllPath.c_str()) ? L"✓ 正常就绪" : L"✗ 缺失") << L"\r\n";
     ss << L"● 后台渲染进程 (ModelPeekWorker.exe): " << (PathFileExistsW(workerPath.c_str()) ? L"✓ 正常就绪" : L"✗ 缺失") << L"\r\n";
+    ss << L"● 空格键快速预览 (ModelPeekPeek.exe): " << (PathFileExistsW(peekPath.c_str()) ? L"✓ 正常就绪" : L"✗ 缺失") << L"\r\n";
     ss << L"● 当前运行权限: " << (IsRunAsAdmin() ? L"管理员模式 (Administrator)" : L"普通用户权限") << L"\r\n";
-    ss << L"● 注册表状态: " << (IsFormatRegistered(L".stl") ? L"已激活并接管模型" : L"未完全激活") << L"\r\n";
+    ss << L"● 注册表状态: " << (IsFormatRegistered(L".stl") ? L"已激活并接管模型格式" : L"未完全激活") << L"\r\n";
 
     HWND hEdit = CreateWindowExW(WS_EX_STATICEDGE, L"EDIT", ss.str().c_str(),
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL,
-        15, 35, 560, 150, g_hPanelStatus, NULL, GetModuleHandleW(NULL), NULL);
+        15, 35, 565, 155, g_hPanelStatus, NULL, GetModuleHandleW(NULL), NULL);
     SendMessageW(hEdit, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
     HWND btnReinstall = CreateWindowExW(0, L"BUTTON", L"🔧 一键重新注册激活扩展", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        15, 200, 200, 30, g_hPanelStatus, (HMENU)201, GetModuleHandleW(NULL), NULL);
+        15, 205, 200, 30, g_hPanelStatus, (HMENU)201, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnReinstall, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
     HWND btnUninstall = CreateWindowExW(0, L"BUTTON", L"🗑️ 彻底注销扩展组件", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        230, 200, 160, 30, g_hPanelStatus, (HMENU)202, GetModuleHandleW(NULL), NULL);
+        230, 205, 160, 30, g_hPanelStatus, (HMENU)202, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnUninstall, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 }
 
@@ -298,69 +356,132 @@ void UpdateCacheUI(HWND hLabel) {
     std::wstringstream ss;
     ss << L"当前本地缩略图二级缓存目录：\r\n"
        << GetCacheDirPath() << L"\r\n\r\n"
-       << L"当前已缓存文件数: " << count << L" 个\r\n"
-       << L"已占用磁盘空间: " << std::fixed << std::setprecision(2) << sizeMB << L" MB\r\n\r\n"
-       << L"说明：ModelPeek 自动缓存已生成的快速光栅化三维缩略图，再次进入文件夹无需重复计算。如遇模型更新未能及时刷新，可在此一键清空。";
+       << L"● 缓存图像文件数: " << count << L" 个\r\n"
+       << L"● 占用磁盘空间: " << std::fixed << std::setprecision(2) << sizeMB << L" MB\r\n\r\n"
+       << L"提示：清空缓存后，Windows Explorer 将在下次浏览 3D 文件夹时自动按需重新生成高清缩略图。";
+
     SetWindowTextW(hLabel, ss.str().c_str());
 }
 
-static HWND g_hCacheInfoText = NULL;
-
+// Panel 2: 缓存管理
 void CreateCachePanel(HWND hParent) {
     g_hPanelCache = CreateWindowExW(0, L"ModelPeekPanelClass", L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 
-        15, 42, 590, 315, hParent, NULL, GetModuleHandleW(NULL), NULL);
+        15, 42, 595, 315, hParent, NULL, GetModuleHandleW(NULL), NULL);
 
-    HWND hTitle = CreateWindowExW(0, L"STATIC", L"缩略图本地磁盘缓存管理", 
+    HWND hTitle = CreateWindowExW(0, L"STATIC", L"缩略图二级缓存加速与清理", 
         WS_CHILD | WS_VISIBLE, 10, 5, 570, 25, g_hPanelCache, NULL, GetModuleHandleW(NULL), NULL);
     SendMessageW(hTitle, WM_SETFONT, (WPARAM)g_hFontTitle, TRUE);
 
     g_hCacheInfoText = CreateWindowExW(WS_EX_STATICEDGE, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL,
-        15, 35, 560, 150, g_hPanelCache, NULL, GetModuleHandleW(NULL), NULL);
+        15, 35, 565, 155, g_hPanelCache, NULL, GetModuleHandleW(NULL), NULL);
     SendMessageW(g_hCacheInfoText, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
     UpdateCacheUI(g_hCacheInfoText);
 
     HWND btnClear = CreateWindowExW(0, L"BUTTON", L"🧹 一键清空缩略图缓存", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        15, 200, 180, 30, g_hPanelCache, (HMENU)301, GetModuleHandleW(NULL), NULL);
+        15, 205, 180, 30, g_hPanelCache, (HMENU)301, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnClear, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
     HWND btnRestartExp = CreateWindowExW(0, L"BUTTON", L"🔄 刷新 Windows 图标缓存", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        210, 200, 190, 30, g_hPanelCache, (HMENU)302, GetModuleHandleW(NULL), NULL);
+        210, 205, 190, 30, g_hPanelCache, (HMENU)302, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnRestartExp, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 }
 
+void UpdateQuickLookUI() {
+    bool isRunning = IsQuickLookRunning();
+    bool isAutostart = IsQuickLookAutostart();
+
+    if (g_hQuickLookStatusText) {
+        std::wstring text = L"QuickLook 守护进程状态: " + std::wstring(isRunning ? L"🟢 正在运行 (按空格键即可预览)" : L"⚪ 未运行 (点击下方按钮启动)");
+        SetWindowTextW(g_hQuickLookStatusText, text.c_str());
+    }
+    if (g_hChkQuickLookAutostart) {
+        SendMessageW(g_hChkQuickLookAutostart, BM_SETCHECK, isAutostart ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+}
+
+// Panel 3: 空格预览 (Spacebar QuickLook)
+void CreateQuickLookPanel(HWND hParent) {
+    g_hPanelQuickLook = CreateWindowExW(0, L"ModelPeekPanelClass", L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 
+        15, 42, 595, 315, hParent, NULL, GetModuleHandleW(NULL), NULL);
+
+    HWND hTitle = CreateWindowExW(0, L"STATIC", L"空格键快速预览 (Spacebar QuickLook)", 
+        WS_CHILD | WS_VISIBLE, 10, 5, 570, 25, g_hPanelQuickLook, NULL, GetModuleHandleW(NULL), NULL);
+    SendMessageW(hTitle, WM_SETFONT, (WPARAM)g_hFontTitle, TRUE);
+
+    g_hQuickLookStatusText = CreateWindowExW(0, L"STATIC", L"QuickLook 守护进程状态: 检测中...",
+        WS_CHILD | WS_VISIBLE, 15, 35, 565, 20, g_hPanelQuickLook, NULL, GetModuleHandleW(NULL), NULL);
+    SendMessageW(g_hQuickLookStatusText, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+
+    g_hChkQuickLookAutostart = CreateWindowExW(0, L"BUTTON", L"开机自动启动 QuickLook 守护进程 (推荐开启)",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+        15, 62, 450, 22, g_hPanelQuickLook, (HMENU)403, GetModuleHandleW(NULL), NULL);
+    SendMessageW(g_hChkQuickLookAutostart, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+
+    HWND btnStart = CreateWindowExW(0, L"BUTTON", L"▶️ 启动 QuickLook 进程", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        15, 95, 170, 30, g_hPanelQuickLook, (HMENU)401, GetModuleHandleW(NULL), NULL);
+    SendMessageW(btnStart, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+
+    HWND btnStop = CreateWindowExW(0, L"BUTTON", L"⏹️ 停止守护进程", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        195, 95, 140, 30, g_hPanelQuickLook, (HMENU)402, GetModuleHandleW(NULL), NULL);
+    SendMessageW(btnStop, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+
+    std::wstring guide = 
+        L"使用指南：\r\n"
+        L"1. 在 Windows 资源管理器或桌面上选中任意 3D/CAD 模型文件；\r\n"
+        L"2. 轻按【空格键 (Space)】，即可唤起独立沉浸式 3D 浮动视窗；\r\n"
+        L"3. 再次轻按【空格键】或【ESC】即可立刻关闭视窗；\r\n"
+        L"4. 视窗开启时按下键盘【↑ ↓ ← → 方向键】，可平滑切换上一个/下一个模型；\r\n"
+        L"5. 包含 3D 三维包围盒尺寸标注、剖切面观察、装配结构树与双语界面。";
+
+    HWND hGuide = CreateWindowExW(WS_EX_STATICEDGE, L"EDIT", guide.c_str(),
+        WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL,
+        15, 138, 565, 125, g_hPanelQuickLook, NULL, GetModuleHandleW(NULL), NULL);
+    SendMessageW(hGuide, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+
+    UpdateQuickLookUI();
+}
+
 void SwitchTab(int index) {
-    ShowWindow(g_hPanelFormats, (index == 0) ? SW_SHOW : SW_HIDE);
-    ShowWindow(g_hPanelStatus,  (index == 1) ? SW_SHOW : SW_HIDE);
-    ShowWindow(g_hPanelCache,   (index == 2) ? SW_SHOW : SW_HIDE);
-    HWND active = (index == 0) ? g_hPanelFormats : ((index == 1) ? g_hPanelStatus : g_hPanelCache);
+    ShowWindow(g_hPanelFormats,   (index == 0) ? SW_SHOW : SW_HIDE);
+    ShowWindow(g_hPanelStatus,    (index == 1) ? SW_SHOW : SW_HIDE);
+    ShowWindow(g_hPanelCache,     (index == 2) ? SW_SHOW : SW_HIDE);
+    ShowWindow(g_hPanelQuickLook, (index == 3) ? SW_SHOW : SW_HIDE);
+
+    HWND active = g_hPanelFormats;
+    if (index == 1) active = g_hPanelStatus;
+    else if (index == 2) active = g_hPanelCache;
+    else if (index == 3) active = g_hPanelQuickLook;
+
     BringWindowToTop(active);
     InvalidateRect(active, NULL, TRUE);
-    if (index == 2 && g_hCacheInfoText) {
-        UpdateCacheUI(g_hCacheInfoText);
-    }
+
+    if (index == 2 && g_hCacheInfoText) UpdateCacheUI(g_hCacheInfoText);
+    if (index == 3) UpdateQuickLookUI();
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
-        // Init tabs
         g_hTab = CreateWindowExW(0, WC_TABCONTROLW, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-            10, 10, 605, 360, hWnd, (HMENU)1, GetModuleHandleW(NULL), NULL);
+            10, 10, 610, 360, hWnd, (HMENU)1, GetModuleHandleW(NULL), NULL);
         SendMessageW(g_hTab, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
         TCITEMW tie = {0};
         tie.mask = TCIF_TEXT;
-        tie.pszText = (LPWSTR)L"📁 格式管理";
+        tie.pszText = (LPWSTR)L"📁 格式管理 (18种)";
         TabCtrl_InsertItem(g_hTab, 0, &tie);
         tie.pszText = (LPWSTR)L"🩺 系统体检";
         TabCtrl_InsertItem(g_hTab, 1, &tie);
-        tie.pszText = (LPWSTR)L"⚡ 缓存管理";
+        tie.pszText = (LPWSTR)L"⚡ 缓存加速";
         TabCtrl_InsertItem(g_hTab, 2, &tie);
+        tie.pszText = (LPWSTR)L"🚀 空格预览";
+        TabCtrl_InsertItem(g_hTab, 3, &tie);
 
         CreateFormatsPanel(hWnd);
         CreateStatusPanel(hWnd);
         CreateCachePanel(hWnd);
+        CreateQuickLookPanel(hWnd);
         SwitchTab(0);
         return 0;
     }
@@ -392,7 +513,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     UpdateWindow(fmt.hCheckbox);
                 }
             }
-        } else if (id == 102) { // Apply
+        } else if (id == 102) { // Apply format associations
             int countActive = 0;
             for (auto& fmt : g_formats) {
                 if (fmt.hCheckbox) {
@@ -402,25 +523,38 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             RestartExplorer();
-            std::wstringstream ss;
-            ss << L"设置已成功应用！\r\n当前已激活接管 " << countActive << L" 种 3D/CAD 文件格式。";
-            MessageBoxW(hWnd, ss.str().c_str(), L"ModelPeek 设置成功", MB_OK | MB_ICONINFORMATION);
+            std::wstringstream msg;
+            msg << L"设置已成功应用并写入注册表！\r\n当前已启用 " << countActive << L" 种 3D/CAD 格式支持。";
+            MessageBoxW(hWnd, msg.str().c_str(), L"ModelPeek", MB_OK | MB_ICONINFORMATION);
         } else if (id == 201) { // Re-register
-            std::wstring bat = GetAppDir() + L"\\install.bat";
-            ShellExecuteW(hWnd, L"open", bat.c_str(), NULL, GetAppDir().c_str(), SW_SHOWNORMAL);
-        } else if (id == 202) { // Uninstall
-            if (MessageBoxW(hWnd, L"确定要注销 ModelPeek 扩展吗？这会取消资源管理器的所有 3D 预览关联。", L"确认注销", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-                std::wstring bat = GetAppDir() + L"\\uninstall.bat";
-                ShellExecuteW(hWnd, L"open", bat.c_str(), NULL, GetAppDir().c_str(), SW_SHOWNORMAL);
-            }
-        } else if (id == 301) { // Clear Cache
+            std::wstring regCmd = L"regsvr32.exe /s \"" + GetAppDir() + L"\\ModelPeekExtension.dll\"";
+            _wsystem(regCmd.c_str());
+            RestartExplorer();
+            MessageBoxW(hWnd, L"已重新执行 COM 扩展注册！", L"提示", MB_OK | MB_ICONINFORMATION);
+        } else if (id == 202) { // Unregister
+            std::wstring unregCmd = L"regsvr32.exe /u /s \"" + GetAppDir() + L"\\ModelPeekExtension.dll\"";
+            _wsystem(unregCmd.c_str());
+            RestartExplorer();
+            MessageBoxW(hWnd, L"已彻底注销 ModelPeek COM 扩展组件。", L"提示", MB_OK | MB_ICONINFORMATION);
+        } else if (id == 301) { // Clear cache
             ClearCacheFiles();
             UpdateCacheUI(g_hCacheInfoText);
-            RestartExplorer();
             MessageBoxW(hWnd, L"本地缩略图缓存已彻底清空！", L"提示", MB_OK | MB_ICONINFORMATION);
         } else if (id == 302) { // Restart explorer
             RestartExplorer();
             MessageBoxW(hWnd, L"Windows 图标缓存已通知刷新！", L"提示", MB_OK | MB_ICONINFORMATION);
+        } else if (id == 401) { // Start QuickLook
+            StartQuickLookProcess();
+            Sleep(200);
+            UpdateQuickLookUI();
+        } else if (id == 402) { // Stop QuickLook
+            StopQuickLookProcess();
+            Sleep(200);
+            UpdateQuickLookUI();
+        } else if (id == 403) { // Toggle autostart
+            bool chk = (SendMessageW(g_hChkQuickLookAutostart, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            SetQuickLookAutostart(chk);
+            UpdateQuickLookUI();
         }
         return 0;
     }
@@ -469,9 +603,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     wc.hIcon = LoadIconW(NULL, IDI_APPLICATION);
     RegisterClassExW(&wc);
 
-    HWND hWnd = CreateWindowExW(0, L"ModelPeekSettingsClass", L"ModelPeek 控制中心 (Settings v2.0)",
+    HWND hWnd = CreateWindowExW(0, L"ModelPeekSettingsClass", L"ModelPeek 控制中心 (Settings v2.1.0)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 640, 420,
+        CW_USEDEFAULT, CW_USEDEFAULT, 645, 420,
         NULL, NULL, hInstance, NULL);
 
     ShowWindow(hWnd, nCmdShow);

@@ -75,7 +75,9 @@ static const LPCWSTR SUPPORTED_EXTS[] = {
     // Tier 1 (Industrial CAD & Scanning):
     L".iges", L".igs", L".brep", L".brp", L".ply",
     // Tier 2 (Toolpath & CG):
-    L".gcode", L".dae", L".3ds"
+    L".gcode", L".dae", L".3ds",
+    // Tier 3 (AutoCAD & Point Clouds):
+    L".dxf", L".pcd"
 };
 
 static HKEY GetRegistryRoot() {

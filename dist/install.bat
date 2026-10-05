@@ -39,15 +39,16 @@ echo.
 echo ========================================================
 echo [SUCCESS] ModelPeek has been installed and activated!
 echo.
-echo Supported Formats:
-echo   - CAD:  .step / .stp, .iges / .igs, .brep / .brp
-echo   - Mesh: .stl, .obj, .glb, .gltf, .3mf, .fbx, .ply, .dae, .3ds, .gcode
+echo Supported Formats (18 Types):
+echo   - CAD:  .step / .stp, .iges / .igs, .brep / .brp, .dxf (AutoCAD)
+echo   - Mesh: .stl, .obj, .glb, .gltf, .3mf, .fbx, .ply, .pcd (Point Cloud), .dae, .3ds, .gcode
 echo.
 echo How to use:
 echo   1. Open any folder containing 3D/CAD files to view 3D thumbnails.
 echo   2. Press Alt + P in Explorer to toggle the 3D Preview Pane.
-echo   3. Double-clicking files still opens your default CAD software.
-echo   4. Run ModelPeekSettings.exe anytime to configure formats or clean cache.
+echo   3. Press Space on any 3D/CAD file for instant Spacebar QuickLook 3D preview!
+echo   4. Double-clicking files still opens your default CAD software.
+echo   5. Run ModelPeekSettings.exe anytime to configure formats or clean cache.
 echo ========================================================
 echo.
 pause

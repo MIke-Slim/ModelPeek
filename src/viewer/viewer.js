@@ -3,6 +3,83 @@
  * High-performance, lightweight WebGL viewer for CAD & 3D models.
  */
 
+const I18N = {
+    zh: {
+        mode_shaded_edges: "渲染+边线",
+        mode_shaded: "纯实体",
+        mode_wireframe: "线框",
+        view_iso: "等轴测",
+        view_top: "顶视",
+        view_front: "前视",
+        view_right: "右视",
+        fit: "适配",
+        dimensions: "📐 标注",
+        measure: "📏 测量",
+        section: "✂️ 剖切",
+        tree: "🌲 部件",
+        theme_dark: "🌌 深色科技",
+        theme_blueprint: "📐 工业蓝图",
+        theme_studio: "💡 摄影白底",
+        theme_grid: "🏁 透明棋盘",
+        dims_label: "外形尺寸:",
+        verts_label: "顶点数量:",
+        faces_label: "三角面数:",
+        measure_title: "📏 测距:",
+        measure_prompt: "点击模型拾取两点",
+        measure_clear: "清除",
+        measure_close: "关闭",
+        section_title: "✂️ 剖切:",
+        section_invert: "反向",
+        section_close: "关闭",
+        tree_title: "🌲 零部件结构树",
+        tree_all: "👁️ 显示全部",
+        tree_close: "✕",
+        tree_search_placeholder: "🔍 搜索零部件名称...",
+        tree_status: "点击部件选中高亮，点眼睛切换可见性",
+        loading: "正在解析模型...",
+        waiting: "等待选择模型...",
+        toast_dim_on: "已开启三维包围盒尺寸标注",
+        toast_dim_off: "已关闭三维包围盒尺寸标注"
+    },
+    en: {
+        mode_shaded_edges: "Shaded+Edges",
+        mode_shaded: "Shaded",
+        mode_wireframe: "Wireframe",
+        view_iso: "Isometric",
+        view_top: "Top",
+        view_front: "Front",
+        view_right: "Right",
+        fit: "Fit",
+        dimensions: "📐 BBox",
+        measure: "📏 Measure",
+        section: "✂️ Section",
+        tree: "🌲 Parts",
+        theme_dark: "🌌 Dark Tech",
+        theme_blueprint: "📐 Blueprint",
+        theme_studio: "💡 Studio White",
+        theme_grid: "🏁 Transparent",
+        dims_label: "Dimensions:",
+        verts_label: "Vertices:",
+        faces_label: "Triangles:",
+        measure_title: "📏 Measure:",
+        measure_prompt: "Click 2 points on model",
+        measure_clear: "Clear",
+        measure_close: "Close",
+        section_title: "✂️ Section:",
+        section_invert: "Invert",
+        section_close: "Close",
+        tree_title: "🌲 Assembly Tree",
+        tree_all: "👁️ Show All",
+        tree_close: "✕",
+        tree_search_placeholder: "🔍 Search parts...",
+        tree_status: "Click to select & highlight, eye to toggle visibility",
+        loading: "Loading 3D model...",
+        waiting: "Select a 3D model to view...",
+        toast_dim_on: "3D Bounding box dimensions enabled",
+        toast_dim_off: "3D Bounding box dimensions disabled"
+    }
+};
+
 class ModelPeekViewer {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
@@ -41,7 +118,13 @@ class ModelPeekViewer {
         this.currentTheme = 'theme-dark';
         this.ambientLight = null;
 
+        // Bounding Box 3D Dimensions & Localization
+        this.showDimensions = false;
+        this.dimensionGroup = null;
+        this.lang = 'zh';
+
         this.init();
+        this.initI18n();
         this.setupEventListeners();
         this.checkUrlParameters();
     }
@@ -227,6 +310,21 @@ class ModelPeekViewer {
                     }, onProgress, onError);
                     break;
 
+                case 'dxf':
+                    new THREE.DXFLoader().load(fileUrl, (object) => {
+                        this.setModel(object, filePath);
+                    }, onProgress, onError);
+                    break;
+
+                case 'pcd':
+                    new THREE.PCDLoader().load(fileUrl, (points) => {
+                        if (points.material) {
+                            points.material.size = Math.max(1, (this.modelRadius || 100) * 0.005);
+                        }
+                        this.setModel(points, filePath);
+                    }, onProgress, onError);
+                    break;
+
                 default:
                     this.hideLoader();
                     this.showToast(`暂不支持直接在视口解析 .${ext}，尝试由 Worker 转换后预览`);
@@ -283,6 +381,10 @@ class ModelPeekViewer {
                 if (child.geometry && child.geometry.attributes && child.geometry.attributes.position) {
                     vertexCount += child.geometry.attributes.position.count;
                 }
+            } else if (child.isPoints) {
+                if (child.geometry && child.geometry.attributes && child.geometry.attributes.position) {
+                    vertexCount += child.geometry.attributes.position.count;
+                }
             }
         });
 
@@ -309,7 +411,7 @@ class ModelPeekViewer {
         this.clearHighlight();
         let partIndex = 1;
         this.currentModel.traverse((child) => {
-            if (child.isMesh || child.isLine || child.isLineSegments) {
+            if (child.isMesh || child.isLine || child.isLineSegments || child.isPoints) {
                 let pFaces = 0;
                 let pVerts = 0;
                 if (child.geometry) {
@@ -322,14 +424,14 @@ class ModelPeekViewer {
                         pFaces = child.geometry.attributes.position.count / 3;
                     }
                 }
-                const rawName = (child.name && child.name.trim() !== '') ? child.name : `部件 #${partIndex++}`;
+                const rawName = (child.name && child.name.trim() !== '') ? child.name : (child.isPoints ? `点云 #${partIndex++}` : `部件 #${partIndex++}`);
                 const comp = {
                     id: this.modelComponents.length,
                     name: rawName,
                     object: child,
                     faceCount: Math.round(pFaces),
                     vertexCount: Math.round(pVerts),
-                    type: child.isMesh ? 'mesh' : 'line',
+                    type: child.isMesh ? 'mesh' : (child.isPoints ? 'points' : 'line'),
                     visible: true
                 };
                 child.userData.componentId = comp.id;
@@ -340,6 +442,11 @@ class ModelPeekViewer {
 
         // Fit Camera View
         this.fitView();
+
+        // Bounding Box Dimensions
+        if (this.showDimensions) {
+            this.buildDimensionAnnotations();
+        }
 
         // Update UI Panel
         const fileName = filePath ? filePath.split(/[\/\\]/).pop() : "3D Model";
@@ -472,6 +579,18 @@ class ModelPeekViewer {
         const fitBtn = document.getElementById('btn-fit');
         if (fitBtn) {
             fitBtn.addEventListener('click', () => this.fitView());
+        }
+
+        // Bounding Box Dimensions button
+        const dimBtn = document.getElementById('btn-dimensions');
+        if (dimBtn) {
+            dimBtn.addEventListener('click', () => {
+                this.showDimensions = !this.showDimensions;
+                dimBtn.classList.toggle('active', this.showDimensions);
+                this.buildDimensionAnnotations();
+                const t = I18N[this.lang || 'zh'];
+                this.showToast(this.showDimensions ? t.toast_dim_on : t.toast_dim_off);
+            });
         }
 
         // Measurement button
@@ -928,6 +1047,249 @@ class ModelPeekViewer {
         document.getElementById('stat-dims').innerText = `${stats.sizeX} × ${stats.sizeY} × ${stats.sizeZ} mm`;
         document.getElementById('stat-vertices').innerText = stats.vertices;
         document.getElementById('stat-faces').innerText = stats.faces;
+    }
+
+    buildDimensionAnnotations() {
+        if (this.dimensionGroup) {
+            this.scene.remove(this.dimensionGroup);
+            this.dimensionGroup.traverse(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (child.material.map) child.material.map.dispose();
+                    child.material.dispose();
+                }
+            });
+            this.dimensionGroup = null;
+        }
+
+        if (!this.showDimensions || !this.currentModel || !this.modelBBox) {
+            return;
+        }
+
+        const box = this.modelBBox;
+        const min = box.min;
+        const max = box.max;
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        if (size.x === 0 && size.y === 0 && size.z === 0) return;
+
+        const group = new THREE.Group();
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const offset = Math.max(maxDim * 0.08, 2);
+        const tickLen = Math.max(maxDim * 0.03, 1);
+
+        // 1. Subtle bounding box wireframe
+        const boxGeom = new THREE.BoxGeometry(size.x, size.y, size.z);
+        const boxCenter = new THREE.Vector3();
+        box.getCenter(boxCenter);
+        const wireMat = new THREE.MeshBasicMaterial({
+            color: 0x00e5ff,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.35,
+            depthTest: false
+        });
+        const wireMesh = new THREE.Mesh(boxGeom, wireMat);
+        wireMesh.position.copy(boxCenter);
+        group.add(wireMesh);
+
+        // 2. Dimension lines & extension ticks (X, Y, Z)
+        const lineMat = new THREE.LineBasicMaterial({
+            color: 0x00e5ff,
+            linewidth: 2,
+            depthTest: false,
+            transparent: true,
+            opacity: 0.95
+        });
+
+        const linePositions = [];
+
+        // --- X Dimension (Front Bottom) ---
+        linePositions.push(
+            min.x, min.y, max.z + offset,
+            max.x, min.y, max.z + offset
+        );
+        linePositions.push(
+            min.x, min.y, max.z,
+            min.x, min.y, max.z + offset + tickLen,
+            max.x, min.y, max.z,
+            max.x, min.y, max.z + offset + tickLen
+        );
+
+        // --- Y Dimension (Front Left) ---
+        linePositions.push(
+            min.x - offset, min.y, max.z,
+            min.x - offset, max.y, max.z
+        );
+        linePositions.push(
+            min.x, min.y, max.z,
+            min.x - offset - tickLen, min.y, max.z,
+            min.x, max.y, max.z,
+            min.x - offset - tickLen, max.y, max.z
+        );
+
+        // --- Z Dimension (Bottom Left) ---
+        linePositions.push(
+            min.x - offset, min.y, min.z,
+            min.x - offset, min.y, max.z
+        );
+        linePositions.push(
+            min.x, min.y, min.z,
+            min.x - offset - tickLen, min.y, min.z,
+            min.x, min.y, max.z,
+            min.x - offset - tickLen, min.y, max.z
+        );
+
+        const lineGeom = new THREE.BufferGeometry();
+        lineGeom.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+        const dimLines = new THREE.LineSegments(lineGeom, lineMat);
+        dimLines.renderOrder = 998;
+        group.add(dimLines);
+
+        // 3. Text Sprites for X, Y, Z
+        const spriteScale = maxDim * 0.22;
+
+        const labelX = this.createLabelSprite(`X: ${size.x.toFixed(1)} mm`, spriteScale);
+        labelX.position.set(boxCenter.x, min.y, max.z + offset + tickLen * 1.5);
+        group.add(labelX);
+
+        const labelY = this.createLabelSprite(`Y: ${size.y.toFixed(1)} mm`, spriteScale);
+        labelY.position.set(min.x - offset - tickLen * 1.5, boxCenter.y, max.z);
+        group.add(labelY);
+
+        const labelZ = this.createLabelSprite(`Z: ${size.z.toFixed(1)} mm`, spriteScale);
+        labelZ.position.set(min.x - offset - tickLen * 1.5, min.y, boxCenter.z);
+        group.add(labelZ);
+
+        this.dimensionGroup = group;
+        this.scene.add(this.dimensionGroup);
+    }
+
+    createLabelSprite(text, scale) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+
+        // Draw pill / rounded rect capsule
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.strokeStyle = '#00e5ff';
+        ctx.lineWidth = 6;
+
+        const x = 8, y = 8, w = 496, h = 112, r = 24;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw Text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 44px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, 256, 64);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter;
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+
+        const mat = new THREE.SpriteMaterial({
+            map: texture,
+            depthTest: false,
+            transparent: true
+        });
+
+        const sprite = new THREE.Sprite(mat);
+        sprite.renderOrder = 999;
+        sprite.scale.set(scale, scale * (128 / 512), 1);
+        return sprite;
+    }
+
+    initI18n() {
+        const urlParams = new URLSearchParams(window.location.search);
+        let lang = urlParams.get('lang');
+        if (!lang) {
+            const navLang = (navigator.language || navigator.userLanguage || 'zh').toLowerCase();
+            lang = navLang.startsWith('zh') ? 'zh' : 'en';
+        }
+        this.setLanguage(lang);
+
+        const langSelect = document.getElementById('lang-selector');
+        if (langSelect) {
+            langSelect.value = this.lang;
+            langSelect.addEventListener('change', (e) => {
+                this.setLanguage(e.target.value);
+            });
+        }
+    }
+
+    setLanguage(lang) {
+        if (!I18N[lang]) lang = 'zh';
+        this.lang = lang;
+        const t = I18N[lang];
+
+        const setText = (id, text) => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = text;
+        };
+
+        setText('btn-mode-shaded-edges', t.mode_shaded_edges);
+        setText('btn-mode-shaded', t.mode_shaded);
+        setText('btn-mode-wireframe', t.mode_wireframe);
+        setText('btn-view-iso', t.view_iso);
+        setText('btn-view-top', t.view_top);
+        setText('btn-view-front', t.view_front);
+        setText('btn-view-right', t.view_right);
+        setText('btn-fit', t.fit);
+        setText('btn-dimensions', t.dimensions);
+        setText('btn-measure', t.measure);
+        setText('btn-section', t.section);
+
+        const measureTitle = document.querySelector('#measure-bar .tool-title');
+        if (measureTitle) measureTitle.innerText = t.measure_title;
+        setText('btn-measure-clear', t.measure_clear);
+        setText('btn-measure-close', t.measure_close);
+
+        const secTitle = document.querySelector('#section-bar .tool-title');
+        if (secTitle) secTitle.innerText = t.section_title;
+        setText('sec-invert', t.section_invert);
+        setText('btn-section-close', t.section_close);
+
+        const treeTitle = document.querySelector('.tree-title');
+        if (treeTitle) treeTitle.innerText = t.tree_title;
+        setText('btn-tree-isolate-reset', t.tree_all);
+        const searchInput = document.getElementById('tree-search-input');
+        if (searchInput) searchInput.placeholder = t.tree_search_placeholder;
+        const treeStatus = document.getElementById('tree-status');
+        if (treeStatus && !this.selectedComponentId) treeStatus.innerHTML = `<span>${t.tree_status}</span>`;
+
+        const statLabels = document.querySelectorAll('#info-panel .stat-label');
+        if (statLabels.length >= 3) {
+            statLabels[0].innerText = t.dims_label;
+            statLabels[1].innerText = t.verts_label;
+            statLabels[2].innerText = t.faces_label;
+        }
+
+        const loaderText = document.getElementById('loader-text');
+        if (loaderText && (loaderText.innerText.includes('解析') || loaderText.innerText.includes('Loading'))) {
+            loaderText.innerText = t.loading;
+        }
+
+        const statName = document.getElementById('stat-name');
+        if (statName && (statName.innerText === '等待选择模型...' || statName.innerText === 'Select a 3D model to view...')) {
+            statName.innerText = t.waiting;
+        }
+
+        const langSelect = document.getElementById('lang-selector');
+        if (langSelect && langSelect.value !== lang) {
+            langSelect.value = lang;
+        }
     }
 }
 

@@ -272,6 +272,280 @@ bool LoadPLY(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB,
     return !tris.empty();
 }
 
+// Point Cloud Data (.pcd) parser (ASCII & Binary)
+bool LoadPCD(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"rb");
+    if (!f) return false;
+
+    char line[512];
+    int numPoints = 0;
+    std::string dataType = "ascii";
+
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "POINTS", 6) == 0) {
+            sscanf(line + 6, "%d", &numPoints);
+        } else if (strncmp(line, "DATA", 4) == 0) {
+            char dt[64] = {0};
+            sscanf(line + 4, "%63s", dt);
+            dataType = dt;
+            break;
+        }
+    }
+
+    if (numPoints <= 0) {
+        fclose(f);
+        return false;
+    }
+
+    std::vector<Vec3> points;
+    points.reserve(std::min(numPoints, 35000));
+
+    if (dataType == "ascii") {
+        int stride = (numPoints > 20000) ? (numPoints / 15000 + 1) : 1;
+        int count = 0;
+        float x, y, z;
+        while (fgets(line, sizeof(line), f)) {
+            if (sscanf(line, "%f %f %f", &x, &y, &z) >= 3) {
+                if ((count++ % stride) == 0) {
+                    points.push_back({x, y, z});
+                    minB.x = std::min(minB.x, x);
+                    minB.y = std::min(minB.y, y);
+                    minB.z = std::min(minB.z, z);
+                    maxB.x = std::max(maxB.x, x);
+                    maxB.y = std::max(maxB.y, y);
+                    maxB.z = std::max(maxB.z, z);
+                }
+            }
+        }
+    } else {
+        int stride = (numPoints > 20000) ? (numPoints / 15000 + 1) : 1;
+        for (int i = 0; i < numPoints; ++i) {
+            float pt[3];
+            if (fread(pt, sizeof(float), 3, f) != 3) break;
+            if ((i % stride) == 0) {
+                points.push_back({pt[0], pt[1], pt[2]});
+                minB.x = std::min(minB.x, pt[0]);
+                minB.y = std::min(minB.y, pt[1]);
+                minB.z = std::min(minB.z, pt[2]);
+                maxB.x = std::max(maxB.x, pt[0]);
+                maxB.y = std::max(maxB.y, pt[1]);
+                maxB.z = std::max(maxB.z, pt[2]);
+            }
+        }
+    }
+    fclose(f);
+
+    if (points.empty()) return false;
+
+    float maxDim = std::max({maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z});
+    if (maxDim < 1e-4f) maxDim = 1.0f;
+    float r = std::max(maxDim * 0.007f, 0.03f);
+
+    tris.reserve(points.size() * 4);
+    for (const auto& pt : points) {
+        Vec3 v0 = pt + Vec3{0, r, 0};
+        Vec3 v1 = pt + Vec3{r * 0.94f, -r * 0.33f, 0};
+        Vec3 v2 = pt + Vec3{-r * 0.47f, -r * 0.33f, r * 0.81f};
+        Vec3 v3 = pt + Vec3{-r * 0.47f, -r * 0.33f, -r * 0.81f};
+
+        auto addTetraFace = [&](const Vec3& a, const Vec3& b, const Vec3& c) {
+            Triangle t;
+            t.v[0] = a; t.v[1] = b; t.v[2] = c;
+            t.normal = (b - a).cross(c - a).normalize();
+            tris.push_back(t);
+        };
+        addTetraFace(v0, v1, v2);
+        addTetraFace(v0, v2, v3);
+        addTetraFace(v0, v3, v1);
+        addTetraFace(v1, v3, v2);
+    }
+    return !tris.empty();
+}
+
+// AutoCAD DXF parser (LINE, 3DFACE, SOLID, CIRCLE, ARC, LWPOLYLINE)
+bool LoadDXF(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"r");
+    if (!f) return false;
+
+    struct LineSeg { Vec3 p1, p2; };
+    std::vector<LineSeg> segs;
+    std::vector<Triangle> rawFaces;
+
+    char lineCode[256];
+    char lineVal[256];
+
+    auto trim = [](char* s) -> std::string {
+        while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') s++;
+        std::string res = s;
+        while (!res.empty() && (res.back() == ' ' || res.back() == '\t' || res.back() == '\r' || res.back() == '\n')) {
+            res.pop_back();
+        }
+        return res;
+    };
+
+    std::string currentEntity = "";
+    Vec3 p1 = {0, 0, 0}, p2 = {0, 0, 0}, p3 = {0, 0, 0}, p4 = {0, 0, 0};
+    float radius = 0.0f, startAngle = 0.0f, endAngle = 360.0f;
+    std::vector<Vec3> polyVerts;
+    int polyClosed = 0;
+    float elevation = 0.0f;
+    bool inEntities = false;
+
+    auto finishEntity = [&]() {
+        if (currentEntity == "LINE") {
+            segs.push_back({p1, p2});
+            minB.x = std::min({minB.x, p1.x, p2.x});
+            minB.y = std::min({minB.y, p1.y, p2.y});
+            minB.z = std::min({minB.z, p1.z, p2.z});
+            maxB.x = std::max({maxB.x, p1.x, p2.x});
+            maxB.y = std::max({maxB.y, p1.y, p2.y});
+            maxB.z = std::max({maxB.z, p1.z, p2.z});
+        } else if (currentEntity == "3DFACE" || currentEntity == "SOLID") {
+            Triangle t1, t2;
+            t1.v[0] = p1; t1.v[1] = p2; t1.v[2] = p3;
+            t1.normal = (p2 - p1).cross(p3 - p1).normalize();
+            rawFaces.push_back(t1);
+            if (p4.x != p3.x || p4.y != p3.y || p4.z != p3.z) {
+                t2.v[0] = p1; t2.v[1] = p3; t2.v[2] = p4;
+                t2.normal = (p3 - p1).cross(p4 - p1).normalize();
+                rawFaces.push_back(t2);
+            }
+            minB.x = std::min({minB.x, p1.x, p2.x, p3.x, p4.x});
+            minB.y = std::min({minB.y, p1.y, p2.y, p3.y, p4.y});
+            minB.z = std::min({minB.z, p1.z, p2.z, p3.z, p4.z});
+            maxB.x = std::max({maxB.x, p1.x, p2.x, p3.x, p4.x});
+            maxB.y = std::max({maxB.y, p1.y, p2.y, p3.y, p4.y});
+            maxB.z = std::max({maxB.z, p1.z, p2.z, p3.z, p4.z});
+        } else if (currentEntity == "CIRCLE" && radius > 1e-4f) {
+            const int S = 24;
+            Vec3 prev = { p1.x + radius, p1.y, p1.z };
+            for (int s = 1; s <= S; ++s) {
+                float a = (float)(s * 2.0 * 3.14159265 / S);
+                Vec3 cur = { p1.x + radius * std::cos(a), p1.y + radius * std::sin(a), p1.z };
+                segs.push_back({prev, cur});
+                minB.x = std::min(minB.x, cur.x); minB.y = std::min(minB.y, cur.y); minB.z = std::min(minB.z, cur.z);
+                maxB.x = std::max(maxB.x, cur.x); maxB.y = std::max(maxB.y, cur.y); maxB.z = std::max(maxB.z, cur.z);
+                prev = cur;
+            }
+        } else if (currentEntity == "ARC" && radius > 1e-4f) {
+            const int S = 16;
+            float a1 = startAngle * 3.14159265f / 180.0f;
+            float a2 = endAngle * 3.14159265f / 180.0f;
+            if (a2 < a1) a2 += 2.0f * 3.14159265f;
+            Vec3 prev = { p1.x + radius * std::cos(a1), p1.y + radius * std::sin(a1), p1.z };
+            for (int s = 1; s <= S; ++s) {
+                float a = a1 + (a2 - a1) * ((float)s / S);
+                Vec3 cur = { p1.x + radius * std::cos(a), p1.y + radius * std::sin(a), p1.z };
+                segs.push_back({prev, cur});
+                minB.x = std::min(minB.x, cur.x); minB.y = std::min(minB.y, cur.y); minB.z = std::min(minB.z, cur.z);
+                maxB.x = std::max(maxB.x, cur.x); maxB.y = std::max(maxB.y, cur.y); maxB.z = std::max(maxB.z, cur.z);
+                prev = cur;
+            }
+        } else if (currentEntity == "LWPOLYLINE" && polyVerts.size() >= 2) {
+            for (size_t i = 0; i + 1 < polyVerts.size(); ++i) {
+                segs.push_back({polyVerts[i], polyVerts[i + 1]});
+                minB.x = std::min(minB.x, polyVerts[i].x); minB.y = std::min(minB.y, polyVerts[i].y); minB.z = std::min(minB.z, polyVerts[i].z);
+                maxB.x = std::max(maxB.x, polyVerts[i].x); maxB.y = std::max(maxB.y, polyVerts[i].y); maxB.z = std::max(maxB.z, polyVerts[i].z);
+            }
+            if (polyClosed) {
+                segs.push_back({polyVerts.back(), polyVerts.front()});
+            }
+        }
+    };
+
+    while (fgets(lineCode, sizeof(lineCode), f) && fgets(lineVal, sizeof(lineVal), f)) {
+        int code = atoi(lineCode);
+        std::string val = trim(lineVal);
+
+        if (code == 2 && val == "ENTITIES") {
+            inEntities = true;
+            continue;
+        }
+        if (code == 0 && val == "ENDSEC") {
+            if (inEntities) {
+                finishEntity();
+                break;
+            }
+        }
+
+        if (code == 0) {
+            finishEntity();
+            currentEntity = val;
+            p1 = p2 = p3 = p4 = {0, 0, 0};
+            radius = startAngle = 0.0f;
+            endAngle = 360.0f;
+            polyVerts.clear();
+            polyClosed = 0;
+            elevation = 0.0f;
+            continue;
+        }
+
+        if (!inEntities) continue;
+
+        switch (code) {
+            case 10: p1.x = (float)atof(val.c_str()); if (currentEntity == "LWPOLYLINE") polyVerts.push_back({p1.x, 0, elevation}); break;
+            case 20: p1.y = (float)atof(val.c_str()); if (currentEntity == "LWPOLYLINE" && !polyVerts.empty()) polyVerts.back().y = p1.y; break;
+            case 30: p1.z = (float)atof(val.c_str()); break;
+            case 11: p2.x = (float)atof(val.c_str()); break;
+            case 21: p2.y = (float)atof(val.c_str()); break;
+            case 31: p2.z = (float)atof(val.c_str()); break;
+            case 12: p3.x = (float)atof(val.c_str()); break;
+            case 22: p3.y = (float)atof(val.c_str()); break;
+            case 32: p3.z = (float)atof(val.c_str()); break;
+            case 13: p4.x = (float)atof(val.c_str()); break;
+            case 23: p4.y = (float)atof(val.c_str()); break;
+            case 33: p4.z = (float)atof(val.c_str()); break;
+            case 38: elevation = (float)atof(val.c_str()); break;
+            case 40: radius = (float)atof(val.c_str()); break;
+            case 50: startAngle = (float)atof(val.c_str()); break;
+            case 51: endAngle = (float)atof(val.c_str()); break;
+            case 70: if (currentEntity == "LWPOLYLINE") polyClosed = atoi(val.c_str()) & 1; break;
+        }
+    }
+    finishEntity();
+    fclose(f);
+
+    if (segs.empty() && rawFaces.empty()) return false;
+
+    tris.insert(tris.end(), rawFaces.begin(), rawFaces.end());
+
+    float maxDim = std::max({maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z});
+    if (maxDim < 1e-4f) maxDim = 1.0f;
+    float r = std::max(maxDim * 0.0035f, 0.02f);
+
+    for (const auto& s : segs) {
+        Vec3 delta = s.p2 - s.p1;
+        float len = std::sqrt(delta.dot(delta));
+        if (len < 1e-5f) continue;
+        Vec3 dir = delta * (1.0f / len);
+        Vec3 ref = (std::abs(dir.x) < 0.9f && std::abs(dir.y) < 0.9f) ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
+        Vec3 u1 = dir.cross(ref).normalize() * r;
+        Vec3 u2 = dir.cross(u1).normalize() * r;
+
+        // Quad 1 (along u1)
+        Vec3 q1a = s.p1 - u1, q1b = s.p1 + u1, q1c = s.p2 + u1, q1d = s.p2 - u1;
+        Vec3 n1 = u2.normalize();
+        tris.push_back({ {q1a, q1b, q1c}, n1 });
+        tris.push_back({ {q1a, q1c, q1d}, n1 });
+
+        // Quad 2 (along u2)
+        Vec3 q2a = s.p1 - u2, q2b = s.p1 + u2, q2c = s.p2 + u2, q2d = s.p2 - u2;
+        Vec3 n2 = u1.normalize();
+        tris.push_back({ {q2a, q2b, q2c}, n2 });
+        tris.push_back({ {q2a, q2c, q2d}, n2 });
+    }
+
+    return !tris.empty();
+}
+
 // 256x256 Soft Rasterizer for CAD Thumbnails
 void RenderThumbnail(const std::vector<Triangle>& tris, const Vec3& minB, const Vec3& maxB, int W, int H, const std::wstring& outBmp) {
     std::vector<uint32_t> pixels(W * H, 0xFF1E222B); // CAD dark slate background
@@ -470,6 +744,10 @@ bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int
         loaded = LoadOBJ(meshToRender, tris, minB, maxB);
     } else if (ext == L".ply") {
         loaded = LoadPLY(meshToRender, tris, minB, maxB);
+    } else if (ext == L".dxf") {
+        loaded = LoadDXF(meshToRender, tris, minB, maxB);
+    } else if (ext == L".pcd") {
+        loaded = LoadPCD(meshToRender, tris, minB, maxB);
     }
 
     if (!tempStl.empty()) {

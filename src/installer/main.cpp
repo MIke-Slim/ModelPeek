@@ -158,7 +158,7 @@ void RegisterUninstallEntry(const std::wstring& targetDir) {
     LPCWSTR subKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ModelPeek";
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, subKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         LPCWSTR name = L"ModelPeek 3D/CAD 资源管理器预览扩展";
-        LPCWSTR ver = L"2.0.0";
+        LPCWSTR ver = L"2.1.0";
         LPCWSTR pub = L"ModelPeek Team";
         std::wstring uninst = targetDir + L"\\uninstall.bat";
         std::wstring icon = targetDir + L"\\ModelPeekSettings.exe,0";
@@ -200,9 +200,20 @@ void DoInstallation(HWND hWnd) {
     }
 
     SendMessageW(g_hProgress, PBM_SETPOS, 80, 0);
-    SetWindowTextW(g_hStatusLabel, L"正在创建快捷方式与注册控制面板...");
+    SetWindowTextW(g_hStatusLabel, L"正在创建快捷方式与配置快速预览守护进程...");
 
     std::wstring settingsExe = targetDir + L"\\ModelPeekSettings.exe";
+    std::wstring peekExe = targetDir + L"\\ModelPeekPeek.exe";
+
+    // Setup QuickLook autostart
+    HKEY hRunKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hRunKey) == ERROR_SUCCESS) {
+        std::wstring peekCmd = L"\"" + peekExe + L"\"";
+        RegSetValueExW(hRunKey, L"ModelPeekPeek", 0, REG_SZ, (const BYTE*)peekCmd.c_str(), (DWORD)((peekCmd.length() + 1) * sizeof(WCHAR)));
+        RegCloseKey(hRunKey);
+    }
+    // Launch QuickLook daemon
+    ShellExecuteW(NULL, L"open", peekExe.c_str(), NULL, targetDir.c_str(), SW_SHOWNORMAL);
 
     // Start Menu shortcut
     if (SendMessageW(g_hChkStartMenu, BM_GETCHECK, 0, 0) == BST_CHECKED) {
@@ -232,8 +243,9 @@ void DoInstallation(HWND hWnd) {
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 
     int ret = MessageBoxW(hWnd, 
-        L"🎉 ModelPeek v2.0 已成功安装并激活！\r\n\r\n"
-        L"● 16 种 3D/CAD 格式缩略图与 Alt+P 视口已生效\r\n"
+        L"🎉 ModelPeek v2.1.0 已成功安装并激活！\r\n\r\n"
+        L"● 18 种 3D/CAD 格式立体缩略图已全面生效\r\n"
+        L"● 空格键快速预览 (Spacebar QuickLook) 守护进程已启动\r\n"
         L"● 双击文件保持原有专业软件关联，绝不破坏现有工作流\r\n\r\n"
         L"是否立即打开 ModelPeek 控制中心进行个性化配置？", 
         L"安装完成", MB_YESNO | MB_ICONINFORMATION);
@@ -249,11 +261,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         // Banner header
-        HWND hBanner = CreateWindowExW(0, L"STATIC", L"ModelPeek 3D/CAD 资源管理器扩展 v2.0", 
+        HWND hBanner = CreateWindowExW(0, L"STATIC", L"ModelPeek 3D/CAD 资源管理器扩展 v2.1.0", 
             WS_CHILD | WS_VISIBLE | SS_LEFT, 20, 18, 560, 26, hWnd, NULL, GetModuleHandleW(NULL), NULL);
         SendMessageW(hBanner, WM_SETFONT, (WPARAM)g_hFontHeader, TRUE);
 
-        HWND hSubBanner = CreateWindowExW(0, L"STATIC", L"让 Windows 文件夹秒变专业级工业 3D 看图工作台，16 种格式极速预览", 
+        HWND hSubBanner = CreateWindowExW(0, L"STATIC", L"让 Windows 文件夹秒变专业级工业 3D 工作台，18 种格式极速预览与空格悬浮查看", 
             WS_CHILD | WS_VISIBLE | SS_LEFT, 20, 48, 560, 20, hWnd, NULL, GetModuleHandleW(NULL), NULL);
         SendMessageW(hSubBanner, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 

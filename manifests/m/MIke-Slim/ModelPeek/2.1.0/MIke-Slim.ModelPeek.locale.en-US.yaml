@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+
+PackageIdentifier: MIke-Slim.ModelPeek
+PackageVersion: 2.1.0
+PackageLocale: en-US
+Publisher: MIke-Slim
+PublisherUrl: https://github.com/MIke-Slim
+PublisherSupportUrl: https://github.com/MIke-Slim/ModelPeek/issues
+PackageName: ModelPeek
+PackageUrl: https://github.com/MIke-Slim/ModelPeek
+License: MIT
+LicenseUrl: https://github.com/MIke-Slim/ModelPeek/blob/main/LICENSE
+ShortDescription: High-performance, lightweight Windows Explorer 3D & CAD preview extension with Spacebar QuickLook and 18 formats.
+Description: ModelPeek is a native Windows Explorer 64-bit shell extension and QuickLook utility for CAD and 3D models. It generates realistic 3D thumbnails in Windows Explorer folders, provides interactive preview in the preview pane (Alt+P) and standalone floating Spacebar QuickLook, featuring 3D bounding box dimension annotations, cross-sectioning, and assembly tree inspection.
+Moniker: modelpeek
+Tags:
+  - 3d
+  - cad
+  - preview
+  - thumbnail
+  - step
+  - stl
+  - obj
+  - dxf
+  - pcd
+  - quicklook
+ReleaseNotesUrl: https://github.com/MIke-Slim/ModelPeek/releases/tag/v2.1.0
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

@@ -20,6 +20,8 @@
     <script src="libs/GCodeLoader.js"></script>
     <script src="libs/ColladaLoader.js"></script>
     <script src="libs/TDSLoader.js"></script>
+    <script src="libs/PCDLoader.js"></script>
+    <script src="libs/DXFLoader.js"></script>
 </head>
 <body>
     <div id="canvas-container"></div>
@@ -27,20 +29,21 @@
     <!-- 顶部状态与交互工具条 -->
     <div id="top-toolbar">
         <div class="tool-group">
-            <button class="btn active" data-render-mode="shaded_edges" title="实体加结构特征线">渲染+边线</button>
-            <button class="btn" data-render-mode="shaded" title="纯着色高光实体">纯实体</button>
-            <button class="btn" data-render-mode="wireframe" title="网格线框模式">线框</button>
+            <button class="btn active" id="btn-mode-shaded-edges" data-render-mode="shaded_edges" title="实体加结构特征线">渲染+边线</button>
+            <button class="btn" id="btn-mode-shaded" data-render-mode="shaded" title="纯着色高光实体">纯实体</button>
+            <button class="btn" id="btn-mode-wireframe" data-render-mode="wireframe" title="网格线框模式">线框</button>
         </div>
 
         <div class="tool-group">
-            <button class="btn" data-view="iso" title="轴测等轴视图">等轴测</button>
-            <button class="btn" data-view="top" title="顶视图">顶视</button>
-            <button class="btn" data-view="front" title="前视图">前视</button>
-            <button class="btn" data-view="right" title="右视图">右视</button>
+            <button class="btn" id="btn-view-iso" data-view="iso" title="轴测等轴视图">等轴测</button>
+            <button class="btn" id="btn-view-top" data-view="top" title="顶视图">顶视</button>
+            <button class="btn" id="btn-view-front" data-view="front" title="前视图">前视</button>
+            <button class="btn" id="btn-view-right" data-view="right" title="右视图">右视</button>
             <button class="btn" id="btn-fit" title="居中自适应大小">适配</button>
         </div>
 
         <div class="tool-group">
+            <button class="btn" id="btn-dimensions" title="三维包围盒工程尺寸标注">📐 标注</button>
             <button class="btn" id="btn-measure" title="测量两点距离">📏 测量</button>
             <button class="btn" id="btn-section" title="剖切截面观察">✂️ 剖切</button>
             <button class="btn" id="btn-tree" title="零部件装配结构树">🌲 部件 (<span id="tree-count">0</span>)</button>
@@ -49,6 +52,10 @@
                 <option value="theme-blueprint">📐 工业蓝图</option>
                 <option value="theme-studio">💡 摄影白底</option>
                 <option value="theme-grid">🏁 透明棋盘</option>
+            </select>
+            <select id="lang-selector" class="theme-select" title="Language / 界面语言">
+                <option value="zh">🇨🇳 简中</option>
+                <option value="en">🇺🇸 EN</option>
             </select>
         </div>
     </div>
