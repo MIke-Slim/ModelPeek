@@ -146,7 +146,8 @@ class ModelPeekViewer {
             antialias: true,
             alpha: true,
             preserveDrawingBuffer: true,
-            powerPreference: "high-performance"
+            powerPreference: "high-performance",
+            logarithmicDepthBuffer: true
         });
         this.renderer.setSize(width, height);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -160,8 +161,9 @@ class ModelPeekViewer {
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.08;
         this.controls.screenSpacePanning = true;
-        this.controls.maxDistance = 100000000;
-        this.controls.minDistance = 0.001;
+        this.controls.zoomSpeed = 1.2;
+        this.controls.maxDistance = 1000000000;
+        this.controls.minDistance = 0.0001;
 
         // 5. Lighting Setup (Professional CAD Studio Lights)
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);

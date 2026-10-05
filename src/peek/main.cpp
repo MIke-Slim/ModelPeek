@@ -211,18 +211,34 @@ std::wstring PrepareModelForViewer(const std::wstring& filePath) {
 bool IsExplorerProcess(DWORD pid) {
     if (!pid) return false;
     HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!hProc) return false;
-    WCHAR path[MAX_PATH] = {0};
-    DWORD size = MAX_PATH;
-    bool isExp = false;
-    if (QueryFullProcessImageNameW(hProc, 0, path, &size)) {
-        WCHAR* exe = PathFindFileNameW(path);
-        if (_wcsicmp(exe, L"explorer.exe") == 0) {
-            isExp = true;
+    if (hProc) {
+        WCHAR path[MAX_PATH] = {0};
+        DWORD size = MAX_PATH;
+        if (QueryFullProcessImageNameW(hProc, 0, path, &size)) {
+            WCHAR* exe = PathFindFileNameW(path);
+            if (_wcsicmp(exe, L"explorer.exe") == 0) {
+                CloseHandle(hProc);
+                return true;
+            }
         }
+        CloseHandle(hProc);
     }
-    CloseHandle(hProc);
-    return isExp;
+    // Toolhelp snapshot fallback (never fails due to OpenProcess token security)
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W pe = { sizeof(pe) };
+        if (Process32FirstW(hSnap, &pe)) {
+            do {
+                if (pe.th32ProcessID == pid) {
+                    bool match = (_wcsicmp(pe.szExeFile, L"explorer.exe") == 0);
+                    CloseHandle(hSnap);
+                    return match;
+                }
+            } while (Process32NextW(hSnap, &pe));
+        }
+        CloseHandle(hSnap);
+    }
+    return false;
 }
 
 bool IsExplorerWindow(HWND hwnd) {
@@ -238,7 +254,11 @@ bool IsExplorerWindow(HWND hwnd) {
         if (_wcsicmp(cls, L"CabinetWClass") == 0 ||
             _wcsicmp(cls, L"Progman") == 0 ||
             _wcsicmp(cls, L"WorkerW") == 0 ||
-            _wcsicmp(cls, L"ShellTabWindowClass") == 0) {
+            _wcsicmp(cls, L"ShellTabWindowClass") == 0 ||
+            _wcsicmp(cls, L"DirectUIHWND") == 0 ||
+            _wcsicmp(cls, L"SysListView32") == 0 ||
+            wcsstr(cls, L"Xaml") != NULL ||
+            wcsstr(cls, L"Explorer") != NULL) {
             return true;
         }
         hCheck = GetParent(hCheck);
@@ -545,29 +565,37 @@ void InitWebView2() {
 }
 
 DWORD WINAPI PipeListenerThread(LPVOID /*lpParam*/) {
+    LogQL(L"PipeListenerThread started.");
     while (true) {
         HANDLE hPipe = CreateNamedPipeW(
             L"\\\\.\\pipe\\ModelPeekQuickLookPipe",
             PIPE_ACCESS_INBOUND,
-            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             PIPE_UNLIMITED_INSTANCES,
-            1024, 1024, 0, NULL
+            4096, 4096, 0, NULL
         );
         if (hPipe == INVALID_HANDLE_VALUE) {
+            LogQL(L"CreateNamedPipeW failed: " + std::to_wstring(GetLastError()));
             Sleep(500);
             continue;
         }
 
-        if (ConnectNamedPipe(hPipe, NULL) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED)) {
+        BOOL fConnected = ConnectNamedPipe(hPipe, NULL) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+        if (fConnected) {
             WCHAR buffer[MAX_PATH * 2] = {0};
             DWORD bytesRead = 0;
-            if (ReadFile(hPipe, buffer, sizeof(buffer) - sizeof(WCHAR), &bytesRead, NULL)) {
+            if (ReadFile(hPipe, buffer, sizeof(buffer) - sizeof(WCHAR), &bytesRead, NULL) && bytesRead > 0) {
+                buffer[bytesRead / sizeof(WCHAR)] = L'\0';
                 std::wstring path = buffer;
                 if (!path.empty() && IsSupported3DFile(path)) {
                     LogQL(L"Received pipe preview request for: " + path);
                     WCHAR* pCopy = _wcsdup(path.c_str());
                     PostMessageW(g_hWnd, WM_QUICKLOOK_SHOW, 0, (LPARAM)pCopy);
+                } else {
+                    LogQL(L"Received unsupported or empty path via pipe: " + path);
                 }
+            } else {
+                LogQL(L"ReadFile from pipe failed or 0 bytes, err=" + std::to_wstring(GetLastError()));
             }
         }
         DisconnectNamedPipe(hPipe);
@@ -656,13 +684,21 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 } else {
                     HWND hFg = GetForegroundWindow();
                     if (hFg) {
-                        std::wstring selPath;
-                        HWND hExplorer = NULL;
-                        if (GetExplorerSelectedItem(hFg, selPath, hExplorer)) {
-                            if (IsSupported3DFile(selPath)) {
-                                LogQL(L"Spacebar triggered on 3D file: " + selPath);
-                                ShowQuickLookWindow(selPath, hExplorer);
-                                return 1; // Suppress space in Explorer
+                        DWORD fgPid = 0;
+                        GetWindowThreadProcessId(hFg, &fgPid);
+                        if (IsExplorerProcess(fgPid) || IsExplorerWindow(hFg)) {
+                            std::wstring selPath;
+                            HWND hExplorer = NULL;
+                            if (GetExplorerSelectedItem(hFg, selPath, hExplorer)) {
+                                if (IsSupported3DFile(selPath)) {
+                                    LogQL(L"Spacebar triggered on 3D file: " + selPath);
+                                    ShowQuickLookWindow(selPath, hExplorer);
+                                    return 1; // Suppress space in Explorer
+                                } else {
+                                    LogQL(L"Space pressed in Explorer, but selected file is not 3D: " + selPath);
+                                }
+                            } else {
+                                LogQL(L"Space pressed in Explorer, but no selected items found.");
                             }
                         }
                     }
@@ -695,6 +731,7 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpCmdLine, int /*nCmdShow*/) {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    LogQL(std::wstring(L"wWinMain invoked: ") + (GetCommandLineW() ? GetCommandLineW() : L"NULL"));
 
     // Command-line options
     if (lpCmdLine && (wcsstr(lpCmdLine, L"--quit") || wcsstr(lpCmdLine, L"--stop"))) {
@@ -713,22 +750,30 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
 
     // Check if a file argument is provided (e.g. ModelPeekPeek.exe "model.step")
     std::wstring fileArg = L"";
-    if (lpCmdLine && wcslen(lpCmdLine) > 0 && !wcsstr(lpCmdLine, L"--")) {
-        std::wstring raw = lpCmdLine;
-        while (raw.length() >= 2 && ((raw.front() == L'\"' && raw.back() == L'\"') || (raw.front() == L' ' || raw.back() == L' '))) {
-            if (raw.front() == L' ') raw = raw.substr(1);
-            else if (raw.back() == L' ') raw = raw.substr(0, raw.length() - 1);
-            else if (raw.front() == L'\"' && raw.back() == L'\"') raw = raw.substr(1, raw.length() - 2);
+    int numArgs = 0;
+    LPWSTR* szArglist = CommandLineToArgvW(GetCommandLineW(), &numArgs);
+    if (szArglist && numArgs > 1) {
+        for (int i = 1; i < numArgs; ++i) {
+            std::wstring arg = szArglist[i];
+            if (arg.rfind(L"--", 0) != 0) {
+                WCHAR full[MAX_PATH] = { 0 };
+                GetFullPathNameW(arg.c_str(), MAX_PATH, full, NULL);
+                bool exists = PathFileExistsW(full);
+                bool supported = IsSupported3DFile(full);
+                LogQL(L"Checking arg: " + arg + L" | full: " + full + L" | exists=" + std::to_wstring(exists) + L" | supported=" + std::to_wstring(supported));
+                if (exists && supported) {
+                    fileArg = full;
+                    break;
+                }
+            }
         }
-        WCHAR full[MAX_PATH] = {0};
-        GetFullPathNameW(raw.c_str(), MAX_PATH, full, NULL);
-        if (PathFileExistsW(full) && IsSupported3DFile(full)) {
-            fileArg = full;
-        }
+        LocalFree(szArglist);
     }
 
     // If an instance is already running and fileArg is provided, send to named pipe immediately
     if (!fileArg.empty()) {
+        LogQL(L"Client invoked with fileArg: " + fileArg);
+        WaitNamedPipeW(L"\\\\.\\pipe\\ModelPeekQuickLookPipe", 1500);
         HANDLE hPipe = CreateFileW(
             L"\\\\.\\pipe\\ModelPeekQuickLookPipe",
             GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL
@@ -737,7 +782,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
             DWORD written = 0;
             WriteFile(hPipe, fileArg.c_str(), (DWORD)((fileArg.length() + 1) * sizeof(WCHAR)), &written, NULL);
             CloseHandle(hPipe);
+            LogQL(L"Client wrote fileArg to pipe successfully.");
             return 0; // Handled by existing instance via pipe!
+        } else {
+            LogQL(L"Client failed to open pipe, err=" + std::to_wstring(GetLastError()));
         }
     }
 

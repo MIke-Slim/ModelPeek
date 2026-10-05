@@ -21,6 +21,27 @@ extern long g_serverLocks;
 
 static const WCHAR* PREVIEW_WND_CLASS = L"ModelPeekPreviewHostClass";
 
+static std::wstring UrlEncode(const std::wstring& value) {
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), (int)value.length(), NULL, 0, NULL, NULL);
+    if (utf8Len <= 0) return value;
+    std::string utf8Str(utf8Len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.c_str(), (int)value.length(), &utf8Str[0], utf8Len, NULL, NULL);
+
+    std::wostringstream escaped;
+    escaped.fill(L'0');
+    for (unsigned char c : utf8Str) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.' || c == '~' || c == '/' || c == ':') {
+            escaped << (WCHAR)c;
+        } else if (c == '\\') {
+            escaped << L'/';
+        } else {
+            escaped << L'%' << std::uppercase << std::hex << std::setw(2) << (int)c;
+        }
+    }
+    return escaped.str();
+}
+
 static std::wstring DumpStreamToTemp(IStream* pStream, LPCWSTR origName) {
     std::wstring ext = L".stl";
     if (origName) {
@@ -247,15 +268,23 @@ bool ModelPeekPreviewHandler::CreateChildWindow() {
        << L" g_hInst=" << (UINT_PTR)g_hInst;
     LogTrace(ss.str());
 
+    // 1. Create preview window without parent first to avoid cross-process CreateWindowEx error 1400
     m_hwndPreview = CreateWindowExW(
-        0, PREVIEW_WND_CLASS, L"ModelPeekPreview",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+        WS_EX_NOPARENTNOTIFY, PREVIEW_WND_CLASS, L"ModelPeekPreview",
+        WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         0, 0, w, h,
-        m_hwndParent, NULL, g_hInst, NULL
+        NULL, NULL, g_hInst, NULL
     );
 
     if (m_hwndPreview) {
         SetWindowLongPtrW(m_hwndPreview, GWLP_USERDATA, (LONG_PTR)this);
+        // 2. Attach to host parent window across processes using SetParent
+        if (m_hwndParent) {
+            SetWindowLongPtrW(m_hwndPreview, GWL_STYLE, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
+            SetParent(m_hwndPreview, m_hwndParent);
+            SetWindowPos(m_hwndPreview, NULL, 0, 0, w, h, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        }
+        ShowWindow(m_hwndPreview, SW_SHOW);
         LogTrace(L"PreviewHandler::CreateChildWindow created HWND successfully");
         return true;
     }
@@ -414,23 +443,11 @@ bool ModelPeekPreviewHandler::InitWebView2() {
             std::wstring targetModel = PrepareModelForPreview(m_filePath);
             std::wstring viewerPath = GetViewerHtmlPath();
 
-            std::wstringstream url;
-            url << L"file:///";
-            for (WCHAR c : viewerPath) {
-                if (c == L'\\') url << L'/';
-                else url << c;
-            }
-            url << L"?file=";
-            for (WCHAR c : targetModel) {
-                if (c == L'\\') url << L'/';
-                else if (c == L' ') url << L"%20";
-                else if (c == L'#') url << L"%23";
-                else url << c;
-            }
+            std::wstring url = L"file:///" + UrlEncode(viewerPath) + L"?file=" + UrlEncode(targetModel);
 
-            LogTrace(L"Navigating to URL: " + url.str());
+            LogTrace(L"Navigating to URL: " + url);
             if (m_webview) {
-                m_webview->Navigate(url.str().c_str());
+                m_webview->Navigate(url.c_str());
             }
             return S_OK;
         };
