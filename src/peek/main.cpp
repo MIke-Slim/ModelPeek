@@ -12,12 +12,16 @@
 #include <exdisp.h>
 #include <shldisp.h>
 #include <dwmapi.h>
+#include <tlhelp32.h>
 #include <string>
 #include <vector>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
 #include <cstdint>
+#include <fstream>
+#include <chrono>
+#include <ctime>
 
 #include "../shell_ext/webview2/WebView2.h"
 #include "../shell_ext/WebView2Callbacks.h"
@@ -73,17 +77,48 @@ std::wstring GetLocalLowDir() {
     return L"C:\\Temp";
 }
 
+std::wstring GetLogFilePath() {
+    WCHAR localAppData[MAX_PATH] = {0};
+    if (SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, localAppData) == S_OK) {
+        std::wstring dir = std::wstring(localAppData) + L"\\ModelPeek";
+        CreateDirectoryW(dir.c_str(), NULL);
+        return dir + L"\\quicklook.log";
+    }
+    return L"";
+}
+
+void LogQL(const std::wstring& msg) {
+    std::wstring logPath = GetLogFilePath();
+    if (logPath.empty()) return;
+
+    FILE* fp = _wfopen(logPath.c_str(), L"a, ccs=UTF-8");
+    if (!fp) return;
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    fwprintf(fp, L"[%04d-%02d-%02d %02d:%02d:%02d.%03d] %ls\n",
+             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+             msg.c_str());
+    fclose(fp);
+}
+
+// UTF-8 compliant percent-encoding (properly handles Chinese, Japanese, and non-ASCII paths)
 std::wstring UrlEncode(const std::wstring& value) {
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), (int)value.length(), NULL, 0, NULL, NULL);
+    if (utf8Len <= 0) return value;
+    std::string utf8Str(utf8Len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.c_str(), (int)value.length(), &utf8Str[0], utf8Len, NULL, NULL);
+
     std::wostringstream escaped;
     escaped.fill(L'0');
-    escaped << std::hex;
-    for (WCHAR c : value) {
-        if (isalnum((int)c) || c == L'-' || c == L'_' || c == L'.' || c == L'~' || c == L'/' || c == L':') {
-            escaped << c;
-        } else if (c == L'\\') {
+    for (unsigned char c : utf8Str) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.' || c == '~' || c == '/' || c == ':') {
+            escaped << (WCHAR)c;
+        } else if (c == '\\') {
             escaped << L'/';
         } else {
-            escaped << L'%' << std::setw(2) << ((int)(unsigned char)c);
+            escaped << L'%' << std::uppercase << std::hex << std::setw(2) << (int)c;
         }
     }
     return escaped.str();
@@ -173,29 +208,67 @@ std::wstring PrepareModelForViewer(const std::wstring& filePath) {
     return filePath;
 }
 
+bool IsExplorerProcess(DWORD pid) {
+    if (!pid) return false;
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProc) return false;
+    WCHAR path[MAX_PATH] = {0};
+    DWORD size = MAX_PATH;
+    bool isExp = false;
+    if (QueryFullProcessImageNameW(hProc, 0, path, &size)) {
+        WCHAR* exe = PathFindFileNameW(path);
+        if (_wcsicmp(exe, L"explorer.exe") == 0) {
+            isExp = true;
+        }
+    }
+    CloseHandle(hProc);
+    return isExp;
+}
+
+bool IsExplorerWindow(HWND hwnd) {
+    if (!hwnd) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (IsExplorerProcess(pid)) return true;
+
+    HWND hCheck = hwnd;
+    while (hCheck) {
+        WCHAR cls[128] = {0};
+        GetClassNameW(hCheck, cls, 128);
+        if (_wcsicmp(cls, L"CabinetWClass") == 0 ||
+            _wcsicmp(cls, L"Progman") == 0 ||
+            _wcsicmp(cls, L"WorkerW") == 0 ||
+            _wcsicmp(cls, L"ShellTabWindowClass") == 0) {
+            return true;
+        }
+        hCheck = GetParent(hCheck);
+    }
+    return false;
+}
+
 bool GetExplorerSelectedItem(HWND hActive, std::wstring& outPath, HWND& outExplorerWnd) {
     outPath.clear();
     outExplorerWnd = NULL;
     if (!hActive) return false;
 
-    WCHAR className[128] = {0};
-    GetClassNameW(hActive, className, 128);
-
-    HWND hTarget = hActive;
-    while (hTarget) {
-        GetClassNameW(hTarget, className, 128);
-        if (_wcsicmp(className, L"CabinetWClass") == 0 ||
-            _wcsicmp(className, L"Progman") == 0 ||
-            _wcsicmp(className, L"WorkerW") == 0) {
-            break;
-        }
-        hTarget = GetParent(hTarget);
+    DWORD fgPid = 0;
+    GetWindowThreadProcessId(hActive, &fgPid);
+    if (!IsExplorerProcess(fgPid) && !IsExplorerWindow(hActive)) {
+        return false;
     }
+    outExplorerWnd = hActive;
 
-    if (!hTarget) return false;
-    outExplorerWnd = hTarget;
-
-    bool isDesktop = (_wcsicmp(className, L"Progman") == 0 || _wcsicmp(className, L"WorkerW") == 0);
+    // Filter out edit / rename controls so typing Space during rename or search is not blocked
+    GUITHREADINFO gti = { sizeof(gti) };
+    if (GetGUIThreadInfo(0, &gti) && gti.hwndFocus) {
+        WCHAR focusClass[128] = {0};
+        GetClassNameW(gti.hwndFocus, focusClass, 128);
+        if (_wcsicmp(focusClass, L"Edit") == 0 ||
+            _wcsicmp(focusClass, L"SearchEditBox") == 0 ||
+            wcsstr(focusClass, L"Edit") != NULL) {
+            return false;
+        }
+    }
 
     IShellWindows* psw = NULL;
     HRESULT hr = CoCreateInstance(CLSID_ShellWindows, NULL, CLSCTX_ALL, IID_IShellWindows, (void**)&psw);
@@ -203,7 +276,12 @@ bool GetExplorerSelectedItem(HWND hActive, std::wstring& outPath, HWND& outExplo
 
     long count = 0;
     psw->get_Count(&count);
-    bool found = false;
+
+    std::wstring bestCandidate = L"";
+    int bestPriority = 0; // 3: exact tab/window match, 2: PID match, 1: general match
+
+    HWND hActiveRoot = GetAncestor(hActive, GA_ROOT);
+    if (!hActiveRoot) hActiveRoot = hActive;
 
     for (long i = 0; i < count; ++i) {
         VARIANT vi;
@@ -217,46 +295,83 @@ bool GetExplorerSelectedItem(HWND hActive, std::wstring& outPath, HWND& outExplo
             if (SUCCEEDED(pdisp->QueryInterface(IID_IWebBrowserApp, (void**)&pwba)) && pwba) {
                 HWND hwndBrowser = NULL;
                 pwba->get_HWND((LONG_PTR*)&hwndBrowser);
-                if (hwndBrowser == hTarget || IsChild(hTarget, hwndBrowser) || IsChild(hwndBrowser, hTarget)) {
-                    IDispatch* pdoc = NULL;
-                    if (SUCCEEDED(pwba->get_Document(&pdoc)) && pdoc) {
-                        IShellFolderViewDual* pFolderView = NULL;
-                        if (SUCCEEDED(pdoc->QueryInterface(IID_IShellFolderViewDual, (void**)&pFolderView)) && pFolderView) {
-                            FolderItems* pItems = NULL;
-                            if (SUCCEEDED(pFolderView->SelectedItems(&pItems)) && pItems) {
-                                long selCount = 0;
-                                pItems->get_Count(&selCount);
-                                if (selCount > 0) {
-                                    VARIANT vIdx;
-                                    VariantInit(&vIdx);
-                                    vIdx.vt = VT_I4;
-                                    vIdx.lVal = 0;
-                                    FolderItem* pItem = NULL;
-                                    if (SUCCEEDED(pItems->Item(vIdx, &pItem)) && pItem) {
-                                        BSTR bstr = NULL;
-                                        if (SUCCEEDED(pItem->get_Path(&bstr)) && bstr) {
-                                            outPath = bstr;
-                                            SysFreeString(bstr);
-                                            found = true;
-                                        }
-                                        pItem->Release();
-                                    }
-                                }
-                                pItems->Release();
-                            }
-                            pFolderView->Release();
-                        }
-                        pdoc->Release();
+
+                // Try to get ShellTabWindowClass handle from IShellBrowser
+                HWND hwndTab = NULL;
+                IServiceProvider* psp = NULL;
+                if (SUCCEEDED(pwba->QueryInterface(IID_IServiceProvider, (void**)&psp)) && psp) {
+                    IShellBrowser* psb = NULL;
+                    if (SUCCEEDED(psp->QueryService(SID_STopLevelBrowser, IID_IShellBrowser, (void**)&psb)) && psb) {
+                        psb->GetWindow(&hwndTab);
+                        psb->Release();
                     }
+                    psp->Release();
+                }
+
+                DWORD browserPid = 0;
+                if (hwndBrowser) GetWindowThreadProcessId(hwndBrowser, &browserPid);
+                if (!browserPid && hwndTab) GetWindowThreadProcessId(hwndTab, &browserPid);
+
+                HWND hBrowserRoot = hwndBrowser ? GetAncestor(hwndBrowser, GA_ROOT) : NULL;
+                HWND hTabRoot = hwndTab ? GetAncestor(hwndTab, GA_ROOT) : NULL;
+
+                bool isExactWindow = (hwndBrowser == hActive || hwndTab == hActive ||
+                                      (hBrowserRoot && hBrowserRoot == hActiveRoot) ||
+                                      (hTabRoot && hTabRoot == hActiveRoot) ||
+                                      (hwndBrowser && (IsChild(hActiveRoot, hwndBrowser) || IsChild(hwndBrowser, hActiveRoot))) ||
+                                      (hwndTab && (IsChild(hActiveRoot, hwndTab) || IsChild(hwndTab, hActiveRoot))));
+
+                bool isSameProcess = (browserPid == fgPid && fgPid != 0);
+
+                IDispatch* pdoc = NULL;
+                if (SUCCEEDED(pwba->get_Document(&pdoc)) && pdoc) {
+                    IShellFolderViewDual* pFolderView = NULL;
+                    if (SUCCEEDED(pdoc->QueryInterface(IID_IShellFolderViewDual, (void**)&pFolderView)) && pFolderView) {
+                        FolderItems* pItems = NULL;
+                        if (SUCCEEDED(pFolderView->SelectedItems(&pItems)) && pItems) {
+                            long selCount = 0;
+                            pItems->get_Count(&selCount);
+                            if (selCount > 0) {
+                                VARIANT vIdx;
+                                VariantInit(&vIdx);
+                                vIdx.vt = VT_I4;
+                                vIdx.lVal = 0;
+                                FolderItem* pItem = NULL;
+                                if (SUCCEEDED(pItems->Item(vIdx, &pItem)) && pItem) {
+                                    BSTR bstr = NULL;
+                                    if (SUCCEEDED(pItem->get_Path(&bstr)) && bstr) {
+                                        std::wstring itemPath = bstr;
+                                        SysFreeString(bstr);
+
+                                        if (IsSupported3DFile(itemPath)) {
+                                            int priority = 1;
+                                            if (isSameProcess) priority = 2;
+                                            if (isExactWindow) priority = 3;
+
+                                            if (priority > bestPriority) {
+                                                bestPriority = priority;
+                                                bestCandidate = itemPath;
+                                            }
+                                        }
+                                    }
+                                    pItem->Release();
+                                }
+                            }
+                            pItems->Release();
+                        }
+                        pFolderView->Release();
+                    }
+                    pdoc->Release();
                 }
                 pwba->Release();
             }
             pdisp->Release();
         }
-        if (found) break;
+        if (bestPriority == 3) break;
     }
 
-    if (!found && isDesktop) {
+    // Fallback: Check Desktop selection
+    if (bestPriority == 0) {
         VARIANT vEmpty;
         VariantInit(&vEmpty);
         LONG hwndDesk = 0;
@@ -281,9 +396,12 @@ bool GetExplorerSelectedItem(HWND hActive, std::wstring& outPath, HWND& outExplo
                                 if (SUCCEEDED(pItems->Item(vIdx, &pItem)) && pItem) {
                                     BSTR bstr = NULL;
                                     if (SUCCEEDED(pItem->get_Path(&bstr)) && bstr) {
-                                        outPath = bstr;
+                                        std::wstring itemPath = bstr;
                                         SysFreeString(bstr);
-                                        found = true;
+                                        if (IsSupported3DFile(itemPath)) {
+                                            bestCandidate = itemPath;
+                                            bestPriority = 1;
+                                        }
                                     }
                                     pItem->Release();
                                 }
@@ -301,7 +419,12 @@ bool GetExplorerSelectedItem(HWND hActive, std::wstring& outPath, HWND& outExplo
     }
 
     psw->Release();
-    return found;
+
+    if (bestPriority > 0 && !bestCandidate.empty()) {
+        outPath = bestCandidate;
+        return true;
+    }
+    return false;
 }
 
 void LoadModelInWebView(const std::wstring& filePath) {
@@ -316,6 +439,8 @@ void LoadModelInWebView(const std::wstring& filePath) {
 
     std::wstring encodedModel = UrlEncode(displayModel);
     std::wstring fileUrl = L"file:///" + UrlEncode(htmlPath) + L"?file=" + encodedModel + L"&quicklook=1";
+
+    LogQL(L"Navigating WebView2 to URL: " + fileUrl);
 
     if (g_bWebViewReady && g_pWebView) {
         g_pWebView->Navigate(fileUrl.c_str());
@@ -335,6 +460,8 @@ void LoadModelInWebView(const std::wstring& filePath) {
 void ShowQuickLookWindow(const std::wstring& filePath, HWND hExplorer) {
     g_currentPath = filePath;
     g_hLastExplorer = hExplorer;
+
+    LogQL(L"Showing QuickLook window for: " + filePath);
 
     // Center window over current monitor
     HMONITOR hMon = MonitorFromWindow(hExplorer ? hExplorer : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
@@ -361,10 +488,16 @@ void InitWebView2() {
     SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", L"--allow-file-access-from-files --disable-web-security");
 
     auto onEnvCreated = [](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
-        if (FAILED(result) || !env) return result;
+        if (FAILED(result) || !env) {
+            LogQL(L"WebView2 Environment creation failed with hr=" + std::to_wstring(result));
+            return result;
+        }
 
         auto onControllerCreated = [](HRESULT res, ICoreWebView2Controller* controller) -> HRESULT {
-            if (FAILED(res) || !controller) return res;
+            if (FAILED(res) || !controller) {
+                LogQL(L"WebView2 Controller creation failed with hr=" + std::to_wstring(res));
+                return res;
+            }
 
             g_pController = controller;
             g_pController->AddRef();
@@ -387,6 +520,8 @@ void InitWebView2() {
                 }
 
                 g_bWebViewReady = true;
+                LogQL(L"WebView2 initialized successfully!");
+
                 if (!g_pendingLoadUrl.empty()) {
                     g_pWebView->Navigate(g_pendingLoadUrl.c_str());
                     g_pendingLoadUrl.clear();
@@ -409,8 +544,48 @@ void InitWebView2() {
     );
 }
 
+DWORD WINAPI PipeListenerThread(LPVOID /*lpParam*/) {
+    while (true) {
+        HANDLE hPipe = CreateNamedPipeW(
+            L"\\\\.\\pipe\\ModelPeekQuickLookPipe",
+            PIPE_ACCESS_INBOUND,
+            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+            PIPE_UNLIMITED_INSTANCES,
+            1024, 1024, 0, NULL
+        );
+        if (hPipe == INVALID_HANDLE_VALUE) {
+            Sleep(500);
+            continue;
+        }
+
+        if (ConnectNamedPipe(hPipe, NULL) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED)) {
+            WCHAR buffer[MAX_PATH * 2] = {0};
+            DWORD bytesRead = 0;
+            if (ReadFile(hPipe, buffer, sizeof(buffer) - sizeof(WCHAR), &bytesRead, NULL)) {
+                std::wstring path = buffer;
+                if (!path.empty() && IsSupported3DFile(path)) {
+                    LogQL(L"Received pipe preview request for: " + path);
+                    WCHAR* pCopy = _wcsdup(path.c_str());
+                    PostMessageW(g_hWnd, WM_QUICKLOOK_SHOW, 0, (LPARAM)pCopy);
+                }
+            }
+        }
+        DisconnectNamedPipe(hPipe);
+        CloseHandle(hPipe);
+    }
+    return 0;
+}
+
 LRESULT CALLBACK QuickLookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+    case WM_QUICKLOOK_SHOW: {
+        WCHAR* pPath = (WCHAR*)lParam;
+        if (pPath) {
+            ShowQuickLookWindow(pPath, NULL);
+            free(pPath);
+        }
+        return 0;
+    }
     case WM_SIZE: {
         if (g_pController) {
             RECT rc;
@@ -434,6 +609,17 @@ LRESULT CALLBACK QuickLookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
             return 0;
         }
         break;
+    }
+    case WM_COPYDATA: {
+        COPYDATASTRUCT* pcds = (COPYDATASTRUCT*)lParam;
+        if (pcds && pcds->lpData) {
+            std::wstring path = (LPCWSTR)pcds->lpData;
+            if (IsSupported3DFile(path)) {
+                ShowQuickLookWindow(path, NULL);
+                return TRUE;
+            }
+        }
+        return FALSE;
     }
     case WM_CLOSE: {
         ShowWindow(hWnd, SW_HIDE);
@@ -466,26 +652,15 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             if (pKbd->vkCode == VK_SPACE) {
                 if (IsWindowVisible(g_hWnd)) {
                     ShowWindow(g_hWnd, SW_HIDE);
-                    return 1; // Handled, close QuickLook
+                    return 1; // Toggle off QuickLook
                 } else {
                     HWND hFg = GetForegroundWindow();
                     if (hFg) {
-                        // Check if focused in an edit control (search box or file rename)
-                        GUITHREADINFO gti = { sizeof(gti) };
-                        if (GetGUIThreadInfo(0, &gti) && gti.hwndFocus) {
-                            WCHAR focusClass[128] = {0};
-                            GetClassNameW(gti.hwndFocus, focusClass, 128);
-                            if (_wcsicmp(focusClass, L"Edit") == 0 ||
-                                _wcsicmp(focusClass, L"SearchEditBox") == 0 ||
-                                wcsstr(focusClass, L"Edit") != NULL) {
-                                return CallNextHookEx(NULL, nCode, wParam, lParam);
-                            }
-                        }
-
                         std::wstring selPath;
                         HWND hExplorer = NULL;
                         if (GetExplorerSelectedItem(hFg, selPath, hExplorer)) {
                             if (IsSupported3DFile(selPath)) {
+                                LogQL(L"Spacebar triggered on 3D file: " + selPath);
                                 ShowQuickLookWindow(selPath, hExplorer);
                                 return 1; // Suppress space in Explorer
                             }
@@ -536,6 +711,36 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
         return hExist ? 0 : 1;
     }
 
+    // Check if a file argument is provided (e.g. ModelPeekPeek.exe "model.step")
+    std::wstring fileArg = L"";
+    if (lpCmdLine && wcslen(lpCmdLine) > 0 && !wcsstr(lpCmdLine, L"--")) {
+        std::wstring raw = lpCmdLine;
+        while (raw.length() >= 2 && ((raw.front() == L'\"' && raw.back() == L'\"') || (raw.front() == L' ' || raw.back() == L' '))) {
+            if (raw.front() == L' ') raw = raw.substr(1);
+            else if (raw.back() == L' ') raw = raw.substr(0, raw.length() - 1);
+            else if (raw.front() == L'\"' && raw.back() == L'\"') raw = raw.substr(1, raw.length() - 2);
+        }
+        WCHAR full[MAX_PATH] = {0};
+        GetFullPathNameW(raw.c_str(), MAX_PATH, full, NULL);
+        if (PathFileExistsW(full) && IsSupported3DFile(full)) {
+            fileArg = full;
+        }
+    }
+
+    // If an instance is already running and fileArg is provided, send to named pipe immediately
+    if (!fileArg.empty()) {
+        HANDLE hPipe = CreateFileW(
+            L"\\\\.\\pipe\\ModelPeekQuickLookPipe",
+            GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL
+        );
+        if (hPipe != INVALID_HANDLE_VALUE) {
+            DWORD written = 0;
+            WriteFile(hPipe, fileArg.c_str(), (DWORD)((fileArg.length() + 1) * sizeof(WCHAR)), &written, NULL);
+            CloseHandle(hPipe);
+            return 0; // Handled by existing instance via pipe!
+        }
+    }
+
     HANDLE hMutex = CreateMutexW(NULL, TRUE, MUTEX_NAME);
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         if (hMutex) CloseHandle(hMutex);
@@ -543,6 +748,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
     }
 
     g_hInstance = hInstance;
+    LogQL(L"ModelPeekPeek daemon starting up...");
 
     // Register Window Class
     WNDCLASSEXW wc = { sizeof(wc) };
@@ -565,15 +771,28 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
         NULL, NULL, hInstance, NULL
     );
 
-    // Enable Modern Windows Immersive Dark Mode for Title Bar
+    // Modern Immersive Dark Mode for Title Bar
     BOOL dark = TRUE;
     DwmSetWindowAttribute(g_hWnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof(dark));
 
     // Initialize WebView2
     InitWebView2();
 
+    // Start background IPC pipe listener thread
+    CreateThread(NULL, 0, PipeListenerThread, NULL, 0, NULL);
+
     // Install Low-Level Keyboard Hook
     g_hKeyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, hInstance, 0);
+    if (!g_hKeyboardHook) {
+        LogQL(L"ERROR: SetWindowsHookExW failed with error " + std::to_wstring(GetLastError()));
+    } else {
+        LogQL(L"Low-level keyboard hook installed successfully.");
+    }
+
+    // If a file was passed as argument on initial startup, open it immediately
+    if (!fileArg.empty()) {
+        ShowQuickLookWindow(fileArg, NULL);
+    }
 
     // Message Loop
     MSG msg;
@@ -592,6 +811,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPWSTR lpC
         CloseHandle(hMutex);
     }
 
+    LogQL(L"ModelPeekPeek daemon terminated.");
     CoUninitialize();
     return (int)msg.wParam;
 }

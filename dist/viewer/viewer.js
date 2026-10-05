@@ -138,7 +138,7 @@ class ModelPeekViewer {
         this.scene.background = null; // transparent to allow CSS radial gradient
 
         // 2. Camera
-        this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
+        this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000000);
         this.camera.position.set(150, 150, 200);
 
         // 3. Renderer
@@ -160,8 +160,8 @@ class ModelPeekViewer {
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.08;
         this.controls.screenSpacePanning = true;
-        this.controls.maxDistance = 50000;
-        this.controls.minDistance = 1;
+        this.controls.maxDistance = 100000000;
+        this.controls.minDistance = 0.001;
 
         // 5. Lighting Setup (Professional CAD Studio Lights)
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
@@ -402,6 +402,14 @@ class ModelPeekViewer {
             this.gridHelper.position.y = bbox.min.y - (size.y * 0.01);
         }
 
+        // Dynamically configure camera clipping and OrbitControls distance based on model radius
+        const r = Math.max(this.modelRadius, 0.01);
+        this.controls.minDistance = Math.max(r * 0.0005, 0.001);
+        this.controls.maxDistance = Math.max(r * 100, 100000000);
+        this.camera.near = Math.max(r * 0.0005, 0.01);
+        this.camera.far = Math.max(r * 200, 200000000);
+        this.camera.updateProjectionMatrix();
+
         // Generate Edge Lines for CAD look
         this.generateEdgeLines();
 
@@ -523,11 +531,11 @@ class ModelPeekViewer {
         if (!this.modelBBox) return;
 
         const center = this.modelCenter;
-        const dist = this.modelRadius * 2.2;
+        const dist = (this.modelRadius || 100) * 1.8;
 
         switch (viewType) {
             case 'iso':
-                this.camera.position.set(center.x + dist, center.y + dist * 0.8, center.z + dist);
+                this.camera.position.set(center.x + dist * 0.7, center.y + dist * 0.6, center.z + dist * 0.7);
                 break;
             case 'top':
                 this.camera.position.set(center.x, center.y + dist * 1.5, center.z + 0.0001);
@@ -548,9 +556,17 @@ class ModelPeekViewer {
         if (!this.modelBBox) return;
 
         const center = this.modelCenter;
-        const maxDim = this.modelRadius;
+        const maxDim = this.modelRadius || 100;
+
+        // Ensure distance limits accommodate this model scale dynamically
+        this.controls.minDistance = Math.max(maxDim * 0.0005, 0.001);
+        this.controls.maxDistance = Math.max(maxDim * 100, 100000000);
+        this.camera.near = Math.max(maxDim * 0.0005, 0.01);
+        this.camera.far = Math.max(maxDim * 200, 200000000);
+        this.camera.updateProjectionMatrix();
+
         const fov = this.camera.fov * (Math.PI / 180);
-        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 2.4;
+        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.8;
 
         this.camera.position.set(center.x + cameraZ * 0.7, center.y + cameraZ * 0.6, center.z + cameraZ * 0.7);
         this.camera.lookAt(center);

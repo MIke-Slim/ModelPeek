@@ -11,7 +11,7 @@ Write-Host "=========================================" -ForegroundColor Cyan
 
 # 1. Trigger fresh build
 Write-Host "[1/5] Running automated build pipeline..." -ForegroundColor Yellow
-& powershell -ExecutionPolicy Bypass -File "$Root\scripts\build.ps1"
+& pwsh -ExecutionPolicy Bypass -File "$Root\scripts\build.ps1"
 
 # 2. Prepare Staging
 $Staging = Join-Path $Root "release_staging\ModelPeek_v2.1.0"

@@ -32,7 +32,12 @@ if %errorLevel% equ 0 (
     exit /b %errorLevel%
 )
 
-echo [3/3] Refreshing Windows Explorer shell cache...
+echo [3/4] Activating Spacebar QuickLook Daemon...
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "ModelPeekPeek" /t REG_SZ /d "\"%~dp0ModelPeekPeek.exe\"" /f >nul 2>&1
+taskkill /f /im ModelPeekPeek.exe >nul 2>&1
+start "" "%~dp0ModelPeekPeek.exe"
+
+echo [4/4] Refreshing Windows Explorer shell cache...
 powershell -NoProfile -Command "[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Windows.Forms.SendKeys]::SendWait('{F5}')" >nul 2>&1
 
 echo.

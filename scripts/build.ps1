@@ -13,10 +13,15 @@ if (-not (Test-Path $Gxx)) {
     exit 1
 }
 
-# 1. Build ModelPeekExtension.dll
+# Stop running processes to prevent file lock during compilation
 Stop-Process -Name prevhost -Force -ErrorAction SilentlyContinue
+Stop-Process -Name ModelPeekPeek -Force -ErrorAction SilentlyContinue
+Stop-Process -Name ModelPeekWorker -Force -ErrorAction SilentlyContinue
+Stop-Process -Name ModelPeekSettings -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 200
-Write-Host "[1/3] Compiling ModelPeekExtension.dll..." -ForegroundColor Yellow
+
+# 1. Build ModelPeekExtension.dll
+Write-Host "[1/5] Compiling ModelPeekExtension.dll..." -ForegroundColor Yellow
 & $Gxx -shared -O2 -march=x86-64 -std=c++20 -DUNICODE -D_UNICODE `
     -I "$Root\src\shell_ext" -I "$Root\src\shell_ext\webview2" `
     "$Root\src\shell_ext\DllMain.cpp" `
