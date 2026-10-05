@@ -40,8 +40,8 @@ echo ========================================================
 echo [SUCCESS] ModelPeek has been installed and activated!
 echo.
 echo Supported Formats:
-echo   - CAD:  .step / .stp
-echo   - Mesh: .stl / .obj / .glb / .gltf / .3mf / .fbx
+echo   - CAD:  .step / .stp, .iges / .igs, .brep / .brp
+echo   - Mesh: .stl, .obj, .glb, .gltf, .3mf, .fbx, .ply, .dae, .3ds, .gcode
 echo.
 echo How to use:
 echo   1. Open any folder containing 3D/CAD files to view 3D thumbnails.

@@ -36,10 +36,13 @@ ModelPeek 是一个轻量、高效、极其稳定的 **Windows 资源管理器 3
 
 ---
 
-## 📁 支持格式（第一版 MVP）
+## 📁 支持格式（v1.0.0 正式发布）
 
-- **CAD 工业格式**：`.step`、`.stp`（OpenCASCADE B-Rep 工业级几何内核）
-- **通用 3D 网格**：`.stl`（ASCII 与 Binary）、`.obj`、`.3mf`、`.glb`、`.gltf`、`.fbx`
+- **CAD 工业级格式**：`.step`、`.stp`、`.iges`、`.igs`、`.brep`、`.brp`（OpenCASCADE B-Rep / NURBS 工业级几何内核与线框自适应渲染）
+- **通用 3D 网格与数字资产**：`.stl`（ASCII 与 Binary）、`.obj`、`.3mf`、`.glb`、`.gltf`、`.fbx`（含标准网格与数学 NURBS 曲线）
+- **高精度点云与逆向工程**：`.ply`（支持顶点色渲染）
+- **制造加工与切片路径**：`.gcode`（高精度刀轨路径可视化）
+- **多媒体与经典 3D 交换格式**：`.dae` (Collada)、`.3ds` (3D Studio)
 
 ---
 
