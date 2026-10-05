@@ -14,6 +14,8 @@ if (-not (Test-Path $Gxx)) {
 }
 
 # 1. Build ModelPeekExtension.dll
+Stop-Process -Name prevhost -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 200
 Write-Host "[1/3] Compiling ModelPeekExtension.dll..." -ForegroundColor Yellow
 & $Gxx -shared -O2 -march=x86-64 -std=c++20 `
     -I "$Root\src\shell_ext" -I "$Root\src\shell_ext\webview2" `
