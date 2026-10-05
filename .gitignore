@@ -9,6 +9,9 @@ tools/*
 *.tmp
 *.tmp.*
 *.zip
+dist/*Setup.exe
+dist/*_Setup.exe
+dist/*.o
 release_staging/
 sample_models/*.bmp
 sample_models/*_out.*

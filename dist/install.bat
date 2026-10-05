@@ -47,6 +47,7 @@ echo How to use:
 echo   1. Open any folder containing 3D/CAD files to view 3D thumbnails.
 echo   2. Press Alt + P in Explorer to toggle the 3D Preview Pane.
 echo   3. Double-clicking files still opens your default CAD software.
+echo   4. Run ModelPeekSettings.exe anytime to configure formats or clean cache.
 echo ========================================================
 echo.
 pause

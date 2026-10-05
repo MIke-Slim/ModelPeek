@@ -269,27 +269,51 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
             std::wstring cachedStl = ss.str();
 
             if (!PathFileExistsW(cachedStl.c_str())) {
-                WCHAR modulePath[MAX_PATH];
-                GetModuleFileNameW(g_hInst, modulePath, MAX_PATH);
-                PathRemoveFileSpecW(modulePath);
-                std::wstring workerExe = std::wstring(modulePath) + L"\\ModelPeekWorker.exe";
+                bool pipeConverted = false;
+                LPCWSTR pipeName = L"\\\\.\\pipe\\ModelPeekWorkerPipe";
+                if (WaitNamedPipeW(pipeName, 20)) {
+                    HANDLE hPipe = CreateFileW(pipeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+                    if (hPipe != INVALID_HANDLE_VALUE) {
+                        std::wstringstream req;
+                        req << L"convert\t" << filePath << L"\t" << cachedStl;
+                        std::wstring reqStr = req.str();
+                        DWORD written = 0;
+                        if (WriteFile(hPipe, reqStr.c_str(), (DWORD)(reqStr.length() * sizeof(WCHAR)), &written, NULL)) {
+                            WCHAR resp[128] = {0};
+                            DWORD read = 0;
+                            ReadFile(hPipe, resp, sizeof(resp) - sizeof(WCHAR), &read, NULL);
+                        }
+                        CloseHandle(hPipe);
+                        if (PathFileExistsW(cachedStl.c_str())) {
+                            pipeConverted = true;
+                            LogTrace(L"PreviewHandler: CAD converted via Daemon Named Pipe successfully!");
+                        }
+                    }
+                }
 
-                std::wstringstream cmd;
-                cmd << L"\"" << workerExe << L"\" convert \"" << filePath << L"\" \"" << cachedStl << L"\"";
+                if (!pipeConverted) {
+                    WCHAR modulePath[MAX_PATH];
+                    GetModuleFileNameW(g_hInst, modulePath, MAX_PATH);
+                    PathRemoveFileSpecW(modulePath);
+                    std::wstring workerExe = std::wstring(modulePath) + L"\\ModelPeekWorker.exe";
 
-                STARTUPINFOW si = { sizeof(si) };
-                PROCESS_INFORMATION pi = { 0 };
-                si.dwFlags = STARTF_USESHOWWINDOW;
-                si.wShowWindow = SW_HIDE;
-                std::wstring cmdStr = cmd.str();
-                LogTrace(std::wstring(L"PreviewHandler executing worker conversion: ") + cmdStr);
-                std::vector<WCHAR> cmdLine(cmdStr.begin(), cmdStr.end());
-                cmdLine.push_back(L'\0');
+                    std::wstringstream cmd;
+                    cmd << L"\"" << workerExe << L"\" convert \"" << filePath << L"\" \"" << cachedStl << L"\"";
 
-                if (CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-                    WaitForSingleObject(pi.hProcess, 8000);
-                    CloseHandle(pi.hProcess);
-                    CloseHandle(pi.hThread);
+                    STARTUPINFOW si = { sizeof(si) };
+                    PROCESS_INFORMATION pi = { 0 };
+                    si.dwFlags = STARTF_USESHOWWINDOW;
+                    si.wShowWindow = SW_HIDE;
+                    std::wstring cmdStr = cmd.str();
+                    LogTrace(std::wstring(L"PreviewHandler executing worker conversion: ") + cmdStr);
+                    std::vector<WCHAR> cmdLine(cmdStr.begin(), cmdStr.end());
+                    cmdLine.push_back(L'\0');
+
+                    if (CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+                        WaitForSingleObject(pi.hProcess, 8000);
+                        CloseHandle(pi.hProcess);
+                        CloseHandle(pi.hThread);
+                    }
                 }
             }
 

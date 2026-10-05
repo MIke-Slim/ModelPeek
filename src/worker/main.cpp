@@ -440,21 +440,120 @@ bool RunCadConverter(const std::wstring& inputStep, const std::wstring& outputSt
     return PathFileExistsW(fullOut) == TRUE;
 }
 
+bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int size) {
+    std::wstring ext;
+    size_t dot = input.find_last_of(L'.');
+    if (dot != std::wstring::npos) {
+        ext = input.substr(dot);
+        for (auto& c : ext) c = towlower(c);
+    }
+
+    std::vector<Triangle> tris;
+    Vec3 minB, maxB;
+    std::wstring meshToRender = input;
+    std::wstring tempStl = L"";
+
+    bool isCad = (ext == L".step" || ext == L".stp" || ext == L".iges" || ext == L".igs" || ext == L".brep" || ext == L".brp");
+    if (isCad) {
+        tempStl = output + L".tmp.stl";
+        if (!RunCadConverter(input, tempStl)) {
+            return false;
+        }
+        meshToRender = tempStl;
+        ext = L".stl";
+    }
+
+    bool loaded = false;
+    if (ext == L".stl") {
+        loaded = LoadSTL(meshToRender, tris, minB, maxB);
+    } else if (ext == L".obj") {
+        loaded = LoadOBJ(meshToRender, tris, minB, maxB);
+    } else if (ext == L".ply") {
+        loaded = LoadPLY(meshToRender, tris, minB, maxB);
+    }
+
+    if (!tempStl.empty()) {
+        DeleteFileW(tempStl.c_str());
+    }
+
+    if (!loaded || tris.empty()) {
+        return false;
+    }
+
+    RenderThumbnail(tris, minB, maxB, size, size, output);
+    return PathFileExistsW(output.c_str()) == TRUE;
+}
+
+void RunDaemonMode() {
+    LPCWSTR pipeName = L"\\\\.\\pipe\\ModelPeekWorkerPipe";
+    std::wcout << L"ModelPeek Worker Daemon started on " << pipeName << std::endl;
+    while (true) {
+        HANDLE hPipe = CreateNamedPipeW(
+            pipeName,
+            PIPE_ACCESS_DUPLEX,
+            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+            PIPE_UNLIMITED_INSTANCES,
+            4096, 4096, 5000, NULL
+        );
+        if (hPipe == INVALID_HANDLE_VALUE) {
+            Sleep(100);
+            continue;
+        }
+
+        BOOL connected = ConnectNamedPipe(hPipe, NULL) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+        if (connected) {
+            WCHAR buffer[2048] = {0};
+            DWORD bytesRead = 0;
+            if (ReadFile(hPipe, buffer, sizeof(buffer) - sizeof(WCHAR), &bytesRead, NULL)) {
+                std::wstring request = buffer;
+                std::wstringstream ss(request);
+                std::wstring op, arg1, arg2, arg3;
+                std::getline(ss, op, L'\t');
+                std::getline(ss, arg1, L'\t');
+                std::getline(ss, arg2, L'\t');
+                std::getline(ss, arg3, L'\t');
+
+                std::wstring response = L"FAILED\n";
+                if (op == L"thumbnail" && !arg1.empty() && !arg2.empty()) {
+                    int size = arg3.empty() ? 256 : _wtoi(arg3.c_str());
+                    if (ProcessThumbnail(arg1, arg2, size)) {
+                        response = L"SUCCESS\n";
+                    }
+                } else if (op == L"convert" && !arg1.empty() && !arg2.empty()) {
+                    if (RunCadConverter(arg1, arg2)) {
+                        response = L"SUCCESS\n";
+                    }
+                }
+
+                DWORD bytesWritten = 0;
+                WriteFile(hPipe, response.c_str(), (DWORD)(response.length() * sizeof(WCHAR)), &bytesWritten, NULL);
+            }
+        }
+        DisconnectNamedPipe(hPipe);
+        CloseHandle(hPipe);
+    }
+}
+
 int main(int, char*[]) {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv || argc < 2) {
-        std::wcout << L"ModelPeek Worker v1.0\n"
+        std::wcout << L"ModelPeek Worker v2.0\n"
                    << L"Usage:\n"
                    << L"  ModelPeekWorker.exe thumbnail <input_model> <output_bmp> [size]\n"
-                   << L"  ModelPeekWorker.exe convert <input_step> <output_stl>\n";
+                   << L"  ModelPeekWorker.exe convert <input_step> <output_stl>\n"
+                   << L"  ModelPeekWorker.exe --daemon\n";
         if (argv) LocalFree(argv);
         return 0;
     }
 
     std::wstring cmd = argv[1];
 
-    if (cmd == L"convert" && argc >= 4) {
+    if (cmd == L"--daemon" || cmd == L"daemon") {
+        LocalFree(argv);
+        RunDaemonMode();
+        return 0;
+    } else if (cmd == L"convert" && argc >= 4) {
         std::wstring input = argv[2];
         std::wstring output = argv[3];
         if (RunCadConverter(input, output)) {
@@ -471,53 +570,15 @@ int main(int, char*[]) {
         std::wstring output = argv[3];
         int size = (argc >= 5) ? _wtoi(argv[4]) : 256;
 
-        std::wstring ext;
-        size_t dot = input.find_last_of(L'.');
-        if (dot != std::wstring::npos) {
-            ext = input.substr(dot);
-            for (auto& c : ext) c = towlower(c);
-        }
-
-        std::vector<Triangle> tris;
-        Vec3 minB, maxB;
-        std::wstring meshToRender = input;
-        std::wstring tempStl = L"";
-
-        bool isCad = (ext == L".step" || ext == L".stp" || ext == L".iges" || ext == L".igs" || ext == L".brep" || ext == L".brp");
-        if (isCad) {
-            tempStl = output + L".tmp.stl";
-            if (!RunCadConverter(input, tempStl)) {
-                std::wcerr << L"Failed to convert CAD model to mesh" << std::endl;
-                LocalFree(argv);
-                return 1;
-            }
-            meshToRender = tempStl;
-            ext = L".stl";
-        }
-
-        bool loaded = false;
-        if (ext == L".stl") {
-            loaded = LoadSTL(meshToRender, tris, minB, maxB);
-        } else if (ext == L".obj") {
-            loaded = LoadOBJ(meshToRender, tris, minB, maxB);
-        } else if (ext == L".ply") {
-            loaded = LoadPLY(meshToRender, tris, minB, maxB);
-        }
-
-        if (!tempStl.empty()) {
-            DeleteFileW(tempStl.c_str());
-        }
-
-        if (!loaded || tris.empty()) {
-            std::wcerr << L"Failed to load mesh" << std::endl;
+        if (ProcessThumbnail(input, output, size)) {
+            std::wcout << L"SUCCESS" << std::endl;
+            LocalFree(argv);
+            return 0;
+        } else {
+            std::wcerr << L"Failed to generate thumbnail" << std::endl;
             LocalFree(argv);
             return 1;
         }
-
-        RenderThumbnail(tris, minB, maxB, size, size, output);
-        std::wcout << L"SUCCESS" << std::endl;
-        LocalFree(argv);
-        return 0;
     }
 
     LocalFree(argv);

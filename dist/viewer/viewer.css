@@ -210,3 +210,228 @@ body, html {
     cursor: pointer;
 }
 
+/* 视口背景主题 (Themes) */
+body.theme-dark {
+    background: radial-gradient(circle at center, #2e3440 0%, #1e222b 100%);
+    color: #e5e9f0;
+}
+
+body.theme-blueprint {
+    background: radial-gradient(circle at center, #18385e 0%, #0c1a2c 100%);
+    color: #eaf2ff;
+}
+
+body.theme-studio {
+    background: radial-gradient(circle at center, #f4f6fa 0%, #dbe3ed 100%);
+    color: #2e3440;
+}
+body.theme-studio .tool-group,
+body.theme-studio #info-panel,
+body.theme-studio .floating-tool-bar,
+body.theme-studio .tree-drawer {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(0, 0, 0, 0.12);
+    color: #2e3440;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+body.theme-studio .btn {
+    color: #3b4252;
+}
+body.theme-studio .btn:hover {
+    background: rgba(0, 0, 0, 0.08);
+    color: #5e81ac;
+}
+body.theme-studio .btn.active {
+    background: #5e81ac;
+    color: #ffffff;
+}
+body.theme-studio #info-panel .stat-label {
+    color: #556277;
+}
+body.theme-studio #info-panel .stat-val {
+    color: #1a2233;
+}
+body.theme-studio .tree-item-name {
+    color: #2e3440;
+}
+body.theme-studio .tree-search-bar input {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(0, 0, 0, 0.15);
+    color: #2e3440;
+}
+
+body.theme-grid {
+    background: repeating-conic-gradient(#2b313d 0% 25%, #20242c 0% 50%) 50% / 24px 24px;
+    color: #eceff4;
+}
+
+.theme-select {
+    background: rgba(30, 34, 43, 0.6);
+    color: #d8dee9;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 11px;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.theme-select:hover {
+    border-color: #88c0d0;
+}
+
+/* 零部件装配结构树 (Model Tree Drawer) */
+.tree-drawer {
+    position: absolute;
+    top: 52px;
+    left: 10px;
+    width: 280px;
+    max-height: calc(100% - 130px);
+    background: rgba(24, 28, 36, 0.94);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.tree-drawer.hidden {
+    display: none;
+}
+
+.tree-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tree-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #88c0d0;
+}
+
+.tree-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.btn-icon {
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    color: #d8dee9;
+    border-radius: 4px;
+    padding: 3px 7px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-icon:hover {
+    background: rgba(136, 192, 208, 0.3);
+    color: #88c0d0;
+}
+
+.tree-search-bar {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tree-search-bar input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 11px;
+    color: #eceff4;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.tree-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 380px;
+}
+
+.tree-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid transparent;
+}
+
+.tree-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.tree-item.active {
+    background: rgba(136, 192, 208, 0.2);
+    border-color: rgba(136, 192, 208, 0.5);
+    color: #88c0d0;
+    font-weight: 600;
+}
+
+.tree-item.hidden-part {
+    opacity: 0.45;
+    text-decoration: line-through;
+}
+
+.tree-item-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0 6px;
+    color: #d8dee9;
+}
+
+.tree-eye {
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background 0.15s;
+}
+
+.tree-eye:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.tree-badge {
+    font-size: 10px;
+    font-family: Consolas, monospace;
+    color: #a3be8c;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.tree-status {
+    padding: 6px 10px;
+    font-size: 10px;
+    color: #9aa5b6;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(0, 0, 0, 0.15);
+}
+

@@ -33,6 +33,14 @@ class ModelPeekViewer {
         this.sectionSliderVal = 50;
         this.clipPlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
 
+        // Assembly Model Tree & Themes
+        this.modelComponents = [];
+        this.selectedComponentId = null;
+        this.highlightHelper = null;
+        this.treeSearchFilter = '';
+        this.currentTheme = 'theme-dark';
+        this.ambientLight = null;
+
         this.init();
         this.setupEventListeners();
         this.checkUrlParameters();
@@ -74,6 +82,7 @@ class ModelPeekViewer {
 
         // 5. Lighting Setup (Professional CAD Studio Lights)
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+        this.ambientLight = ambientLight;
         this.scene.add(ambientLight);
 
         const keyLight = new THREE.DirectionalLight(0xffffff, 0.75);
@@ -294,6 +303,41 @@ class ModelPeekViewer {
         // Generate Edge Lines for CAD look
         this.generateEdgeLines();
 
+        // Collect model components for Assembly Tree
+        this.modelComponents = [];
+        this.selectedComponentId = null;
+        this.clearHighlight();
+        let partIndex = 1;
+        this.currentModel.traverse((child) => {
+            if (child.isMesh || child.isLine || child.isLineSegments) {
+                let pFaces = 0;
+                let pVerts = 0;
+                if (child.geometry) {
+                    if (child.geometry.attributes && child.geometry.attributes.position) {
+                        pVerts = child.geometry.attributes.position.count;
+                    }
+                    if (child.geometry.index) {
+                        pFaces = child.geometry.index.count / 3;
+                    } else if (child.geometry.attributes && child.geometry.attributes.position && child.isMesh) {
+                        pFaces = child.geometry.attributes.position.count / 3;
+                    }
+                }
+                const rawName = (child.name && child.name.trim() !== '') ? child.name : `部件 #${partIndex++}`;
+                const comp = {
+                    id: this.modelComponents.length,
+                    name: rawName,
+                    object: child,
+                    faceCount: Math.round(pFaces),
+                    vertexCount: Math.round(pVerts),
+                    type: child.isMesh ? 'mesh' : 'line',
+                    visible: true
+                };
+                child.userData.componentId = comp.id;
+                this.modelComponents.push(comp);
+            }
+        });
+        this.buildModelTreeUI();
+
         // Fit Camera View
         this.fitView();
 
@@ -336,6 +380,7 @@ class ModelPeekViewer {
                 );
                 line.matrix = child.matrixWorld;
                 line.matrixAutoUpdate = false;
+                line.userData.sourceObject = child;
                 edgeGroup.add(line);
             }
         });
@@ -469,6 +514,42 @@ class ModelPeekViewer {
         const secCloseBtn = document.getElementById('btn-section-close');
         if (secCloseBtn) {
             secCloseBtn.addEventListener('click', () => this.toggleSection(false));
+        }
+
+        // Model Tree Drawer toggle & actions
+        const treeBtn = document.getElementById('btn-tree');
+        const treeDrawer = document.getElementById('tree-drawer');
+        if (treeBtn && treeDrawer) {
+            treeBtn.addEventListener('click', () => {
+                treeDrawer.classList.toggle('hidden');
+                treeBtn.classList.toggle('active', !treeDrawer.classList.contains('hidden'));
+            });
+        }
+        const treeCloseBtn = document.getElementById('btn-tree-close');
+        if (treeCloseBtn && treeDrawer) {
+            treeCloseBtn.addEventListener('click', () => {
+                treeDrawer.classList.add('hidden');
+                if (treeBtn) treeBtn.classList.remove('active');
+            });
+        }
+        const treeResetBtn = document.getElementById('btn-tree-isolate-reset');
+        if (treeResetBtn) {
+            treeResetBtn.addEventListener('click', () => this.isolateReset());
+        }
+        const treeSearch = document.getElementById('tree-search-input');
+        if (treeSearch) {
+            treeSearch.addEventListener('input', (e) => {
+                this.treeSearchFilter = e.target.value.trim();
+                this.buildModelTreeUI();
+            });
+        }
+
+        // Theme selector
+        const themeSelector = document.getElementById('theme-selector');
+        if (themeSelector) {
+            themeSelector.addEventListener('change', (e) => {
+                this.setTheme(e.target.value);
+            });
         }
 
         // Canvas click for measuring
@@ -690,6 +771,155 @@ class ModelPeekViewer {
             toast.innerText = msg;
             toast.style.display = 'block';
             setTimeout(() => { toast.style.display = 'none'; }, 3500);
+        }
+    }
+
+    buildModelTreeUI() {
+        const countSpan = document.getElementById('tree-count');
+        if (countSpan) countSpan.textContent = this.modelComponents.length;
+
+        const listEl = document.getElementById('tree-list');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+
+        if (this.modelComponents.length === 0) {
+            listEl.innerHTML = '<div style="padding:10px;text-align:center;color:#6c7a89;font-size:11px;">无独立子部件</div>';
+            return;
+        }
+
+        const filterText = (this.treeSearchFilter || '').toLowerCase();
+
+        this.modelComponents.forEach((comp) => {
+            if (filterText && !comp.name.toLowerCase().includes(filterText)) {
+                return;
+            }
+
+            const item = document.createElement('div');
+            item.className = 'tree-item' + (this.selectedComponentId === comp.id ? ' active' : '') + (!comp.visible ? ' hidden-part' : '');
+            item.dataset.id = comp.id;
+
+            const eye = document.createElement('span');
+            eye.className = 'tree-eye';
+            eye.textContent = comp.visible ? '👁️' : '🚫';
+            eye.title = comp.visible ? '隐藏该部件' : '显示该部件';
+            eye.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleComponentVisibility(comp.id);
+            });
+
+            const name = document.createElement('span');
+            name.className = 'tree-item-name';
+            name.textContent = comp.name;
+            name.title = comp.name;
+
+            const badge = document.createElement('span');
+            badge.className = 'tree-badge';
+            badge.textContent = comp.faceCount > 0 ? `${comp.faceCount}面` : `${comp.vertexCount}点`;
+
+            item.appendChild(eye);
+            item.appendChild(name);
+            item.appendChild(badge);
+
+            item.addEventListener('click', () => {
+                this.selectComponent(comp.id);
+            });
+
+            listEl.appendChild(item);
+        });
+    }
+
+    toggleComponentVisibility(id) {
+        const comp = this.modelComponents.find(c => c.id === id);
+        if (!comp) return;
+
+        comp.visible = !comp.visible;
+        comp.object.visible = comp.visible;
+
+        if (this.edgeLines) {
+            this.edgeLines.traverse((edgeChild) => {
+                if (edgeChild.userData && edgeChild.userData.sourceObject === comp.object) {
+                    edgeChild.visible = comp.visible;
+                }
+            });
+        }
+
+        this.buildModelTreeUI();
+    }
+
+    selectComponent(id) {
+        if (this.selectedComponentId === id) {
+            this.selectedComponentId = null;
+            this.clearHighlight();
+            const statusEl = document.getElementById('tree-status');
+            if (statusEl) statusEl.innerHTML = '<span>点击部件选中高亮，点眼睛切换可见性</span>';
+            this.buildModelTreeUI();
+            return;
+        }
+
+        this.selectedComponentId = id;
+        const comp = this.modelComponents.find(c => c.id === id);
+        if (!comp) return;
+
+        this.highlightComponent(comp.object);
+
+        const statusEl = document.getElementById('tree-status');
+        if (statusEl) {
+            const compBBox = new THREE.Box3().setFromObject(comp.object);
+            const compSize = new THREE.Vector3();
+            compBBox.getSize(compSize);
+            statusEl.innerHTML = `<span>选中: <b>${comp.name}</b> (${compSize.x.toFixed(1)}×${compSize.y.toFixed(1)}×${compSize.z.toFixed(1)}mm)</span>`;
+        }
+
+        this.buildModelTreeUI();
+    }
+
+    highlightComponent(object) {
+        this.clearHighlight();
+        if (!object) return;
+
+        const box = new THREE.BoxHelper(object, 0x00e5ff);
+        box.material.depthTest = false;
+        box.material.transparent = true;
+        box.material.opacity = 0.85;
+        this.scene.add(box);
+        this.highlightHelper = box;
+    }
+
+    clearHighlight() {
+        if (this.highlightHelper) {
+            this.scene.remove(this.highlightHelper);
+            if (this.highlightHelper.geometry) this.highlightHelper.geometry.dispose();
+            this.highlightHelper = null;
+        }
+    }
+
+    isolateReset() {
+        this.modelComponents.forEach(comp => {
+            comp.visible = true;
+            comp.object.visible = true;
+        });
+        if (this.edgeLines) {
+            this.edgeLines.traverse(e => e.visible = true);
+        }
+        this.selectedComponentId = null;
+        this.clearHighlight();
+        const statusEl = document.getElementById('tree-status');
+        if (statusEl) statusEl.innerHTML = '<span>已恢复所有零部件显示</span>';
+        this.buildModelTreeUI();
+    }
+
+    setTheme(themeName) {
+        this.currentTheme = themeName;
+        document.body.className = themeName;
+        if (themeName === 'theme-studio') {
+            if (this.gridHelper && this.gridHelper.material) this.gridHelper.material.color.setHex(0xaaaaaa);
+            if (this.ambientLight) this.ambientLight.intensity = 0.9;
+        } else if (themeName === 'theme-blueprint') {
+            if (this.gridHelper && this.gridHelper.material) this.gridHelper.material.color.setHex(0x3a608d);
+            if (this.ambientLight) this.ambientLight.intensity = 0.65;
+        } else {
+            if (this.gridHelper && this.gridHelper.material) this.gridHelper.material.color.setHex(0x444b58);
+            if (this.ambientLight) this.ambientLight.intensity = 0.65;
         }
     }
 

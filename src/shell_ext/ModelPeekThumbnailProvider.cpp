@@ -161,6 +161,29 @@ std::wstring ModelPeekThumbnailProvider::GetThumbnailCachePath(const std::wstrin
 }
 
 bool ModelPeekThumbnailProvider::GenerateThumbnail(const std::wstring& filePath, const std::wstring& outBmpPath, UINT cx) {
+    // 1. Try Named Pipe IPC if daemon worker is running (fast path, <1ms)
+    LPCWSTR pipeName = L"\\\\.\\pipe\\ModelPeekWorkerPipe";
+    if (WaitNamedPipeW(pipeName, 20)) {
+        HANDLE hPipe = CreateFileW(pipeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (hPipe != INVALID_HANDLE_VALUE) {
+            std::wstringstream req;
+            req << L"thumbnail\t" << filePath << L"\t" << outBmpPath << L"\t" << cx;
+            std::wstring reqStr = req.str();
+            DWORD written = 0;
+            if (WriteFile(hPipe, reqStr.c_str(), (DWORD)(reqStr.length() * sizeof(WCHAR)), &written, NULL)) {
+                WCHAR resp[128] = {0};
+                DWORD read = 0;
+                ReadFile(hPipe, resp, sizeof(resp) - sizeof(WCHAR), &read, NULL);
+            }
+            CloseHandle(hPipe);
+            if (PathFileExistsW(outBmpPath.c_str())) {
+                LogTrace(L"ThumbnailProvider: Generated via Daemon Named Pipe IPC successfully!");
+                return true;
+            }
+        }
+    }
+
+    // 2. Direct Process spawn fallback
     WCHAR modulePath[MAX_PATH];
     GetModuleFileNameW(g_hInst, modulePath, MAX_PATH);
     PathRemoveFileSpecW(modulePath);

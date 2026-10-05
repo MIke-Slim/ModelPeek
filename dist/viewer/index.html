@@ -43,6 +43,13 @@
         <div class="tool-group">
             <button class="btn" id="btn-measure" title="测量两点距离">📏 测量</button>
             <button class="btn" id="btn-section" title="剖切截面观察">✂️ 剖切</button>
+            <button class="btn" id="btn-tree" title="零部件装配结构树">🌲 部件 (<span id="tree-count">0</span>)</button>
+            <select id="theme-selector" class="theme-select" title="视口背景主题">
+                <option value="theme-dark">🌌 深色科技</option>
+                <option value="theme-blueprint">📐 工业蓝图</option>
+                <option value="theme-studio">💡 摄影白底</option>
+                <option value="theme-grid">🏁 透明棋盘</option>
+            </select>
         </div>
     </div>
 
@@ -63,6 +70,26 @@
         <input type="range" id="sec-slider" min="0" max="100" value="50">
         <button class="btn" id="sec-invert">反向</button>
         <button class="btn" id="btn-section-close">关闭</button>
+    </div>
+
+    <!-- 零部件装配结构树侧边抽屉 -->
+    <div id="tree-drawer" class="tree-drawer hidden">
+        <div class="tree-header">
+            <span class="tree-title">🌲 零部件结构树</span>
+            <div class="tree-actions">
+                <button class="btn-icon" id="btn-tree-isolate-reset" title="恢复全部显示">👁️ 显示全部</button>
+                <button class="btn-icon" id="btn-tree-close" title="收起面板">✕</button>
+            </div>
+        </div>
+        <div class="tree-search-bar">
+            <input type="text" id="tree-search-input" placeholder="🔍 搜索零部件名称..." autocomplete="off">
+        </div>
+        <div id="tree-list" class="tree-list">
+            <!-- Dynamically populated parts list -->
+        </div>
+        <div id="tree-status" class="tree-status">
+            <span>点击部件选中高亮，点眼睛切换可见性</span>
+        </div>
     </div>
 
     <!-- HUD 信息统计小卡片 -->
