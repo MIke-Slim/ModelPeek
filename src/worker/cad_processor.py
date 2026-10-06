@@ -3,20 +3,25 @@ import os
 import json
 import math
 import struct
+import base64
+import zipfile
+import re
+import xml.etree.ElementTree as ET
 
-# Ensure FreeCAD / OpenCASCADE modules can be loaded
+# Attempt to load FreeCAD / OpenCASCADE modules
 for p in [r"D:\SoftWare2\FreeCAD 1.1\bin", r"D:\SoftWare2\FreeCAD 1.1\lib",
           os.path.join(os.path.dirname(__file__), "..", "occt", "bin"),
           os.path.join(os.path.dirname(__file__), "..", "occt", "lib")]:
     if os.path.exists(p) and p not in sys.path:
         sys.path.insert(0, p)
 
+HAS_FREECAD = False
 try:
     import FreeCAD
     import Part
-except ImportError as e:
-    print(f"ERROR: Cannot import OpenCASCADE / Part: {e}", file=sys.stderr)
-    sys.exit(1)
+    HAS_FREECAD = True
+except ImportError:
+    HAS_FREECAD = False
 
 def _normalize(v):
     l = math.sqrt(v[0]**2 + v[1]**2 + v[2]**2)
@@ -50,6 +55,32 @@ def _get_perp_vectors(dir_vec):
     u2 = _cross(d, u1)
     return u1, u2
 
+def calc_normal(p1, p2, p3):
+    u = (p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2])
+    v = (p3[0]-p1[0], p3[1]-p1[1], p3[2]-p1[2])
+    nx = u[1]*v[2] - u[2]*v[1]
+    ny = u[2]*v[0] - u[0]*v[2]
+    nz = u[0]*v[1] - u[1]*v[0]
+    l = math.sqrt(nx*nx + ny*ny + nz*nz)
+    if l < 1e-6:
+        return (0.0, 0.0, 1.0)
+    return (nx/l, ny/l, nz/l)
+
+def write_stl(out_path, triangles):
+    if not triangles:
+        return False
+    with open(out_path, 'wb') as f:
+        header = b"ModelPeek Multi-Format STL Converter"
+        f.write(header.ljust(80, b'\0'))
+        f.write(struct.pack('<I', len(triangles)))
+        for norm, p1, p2, p3 in triangles:
+            f.write(struct.pack('<3f', norm[0], norm[1], norm[2]))
+            f.write(struct.pack('<3f', p1[0], p1[1], p1[2]))
+            f.write(struct.pack('<3f', p2[0], p2[1], p2[2]))
+            f.write(struct.pack('<3f', p3[0], p3[1], p3[2]))
+            f.write(struct.pack('<H', 0))
+    return os.path.exists(out_path) and os.path.getsize(out_path) > 84
+
 def edges_to_stl(edges, bbox, out_stl_path, sides=6):
     max_dim = max(bbox.XLength, bbox.YLength, bbox.ZLength)
     if max_dim <= 1e-4:
@@ -57,7 +88,6 @@ def edges_to_stl(edges, bbox, out_stl_path, sides=6):
     radius = max(max_dim * 0.005, 0.04)
 
     triangles = []
-
     for edge in edges:
         if edge.Length <= 1e-6:
             continue
@@ -113,18 +143,12 @@ def edges_to_stl(edges, bbox, out_stl_path, sides=6):
             next_s = (s + 1) % sides
             triangles.append((end_norm, end_center, r_end[s], r_end[next_s]))
 
-    with open(out_stl_path, 'wb') as f:
-        header = b"ModelPeek Wireframe STL representation"
-        f.write(header.ljust(80, b'\0'))
-        f.write(struct.pack('<I', len(triangles)))
-        for norm, p1, p2, p3 in triangles:
-            f.write(struct.pack('<3f', norm[0], norm[1], norm[2]))
-            f.write(struct.pack('<3f', p1[0], p1[1], p1[2]))
-            f.write(struct.pack('<3f', p2[0], p2[1], p2[2]))
-            f.write(struct.pack('<3f', p3[0], p3[1], p3[2]))
-            f.write(struct.pack('<H', 0))
+    return write_stl(out_stl_path, triangles)
 
 def convert_cad_to_stl(cad_path, out_stl_path, deflection=0.1):
+    if not HAS_FREECAD:
+        print("ERROR: FreeCAD/Part not available for CAD BREP format", file=sys.stderr)
+        return False
     shape = Part.Shape()
     shape.read(cad_path)
     if len(shape.Faces) > 0:
@@ -132,19 +156,336 @@ def convert_cad_to_stl(cad_path, out_stl_path, deflection=0.1):
         if os.path.exists(out_stl_path) and os.path.getsize(out_stl_path) > 0:
             return True
 
-    # If the shape has no polygonal faces (pure wireframe/curve geometry)
-    # or exportStl produced empty file, generate tubular triangular mesh from edges
     if len(shape.Edges) > 0:
         try:
-            edges_to_stl(shape.Edges, shape.BoundBox, out_stl_path)
-            if os.path.exists(out_stl_path) and os.path.getsize(out_stl_path) > 0:
-                return True
+            return edges_to_stl(shape.Edges, shape.BoundBox, out_stl_path)
         except Exception as e:
             print(f"WARN: edges_to_stl failed: {e}", file=sys.stderr)
 
     return False
 
+# 1. 3MF Converter
+def convert_3mf_to_stl(in_path, out_stl_path):
+    triangles = []
+    with zipfile.ZipFile(in_path, 'r') as z:
+        for name in z.namelist():
+            if name.endswith('.model'):
+                root = ET.fromstring(z.read(name))
+                verts = []
+                for v in root.findall('.//{*}vertex'):
+                    verts.append((float(v.attrib['x']), float(v.attrib['y']), float(v.attrib['z'])))
+                for t in root.findall('.//{*}triangle'):
+                    v1, v2, v3 = int(t.attrib['v1']), int(t.attrib['v2']), int(t.attrib['v3'])
+                    if v1 < len(verts) and v2 < len(verts) and v3 < len(verts):
+                        p1, p2, p3 = verts[v1], verts[v2], verts[v3]
+                        triangles.append((calc_normal(p1, p2, p3), p1, p2, p3))
+    return write_stl(out_stl_path, triangles)
+
+# 2. GLTF / GLB Converter
+def convert_gltf_glb_to_stl(in_path, out_stl_path):
+    triangles = []
+    is_glb = in_path.lower().endswith('.glb')
+    if is_glb:
+        with open(in_path, 'rb') as f:
+            f.seek(12)
+            jlen, _ = struct.unpack('<II', f.read(8))
+            jdata = json.loads(f.read(jlen).decode('utf-8'))
+            blen, _ = struct.unpack('<II', f.read(8))
+            bdata = f.read(blen)
+            get_buf = lambda idx: bdata
+    else:
+        with open(in_path, 'r', encoding='utf-8') as f:
+            jdata = json.load(f)
+        base_dir = os.path.dirname(in_path)
+        buffers = []
+        for b in jdata.get('buffers', []):
+            uri = b.get('uri', '')
+            if uri.startswith('data:'):
+                buffers.append(base64.b64decode(uri.split(',', 1)[1]))
+            else:
+                bin_path = os.path.join(base_dir, uri)
+                if os.path.exists(bin_path):
+                    with open(bin_path, 'rb') as bf:
+                        buffers.append(bf.read())
+                else:
+                    buffers.append(b'')
+        get_buf = lambda idx: buffers[idx] if idx < len(buffers) else b''
+
+    accessors = jdata.get('accessors', [])
+    bufferViews = jdata.get('bufferViews', [])
+    for mesh in jdata.get('meshes', []):
+        for prim in mesh.get('primitives', []):
+            pos_acc_idx = prim.get('attributes', {}).get('POSITION')
+            if pos_acc_idx is None:
+                continue
+            pos_acc = accessors[pos_acc_idx]
+            pos_bv = bufferViews[pos_acc['bufferView']]
+            pos_buf = get_buf(pos_bv.get('buffer', 0))
+            pos_offset = pos_bv.get('byteOffset', 0) + pos_acc.get('byteOffset', 0)
+            verts = []
+            for i in range(pos_acc['count']):
+                verts.append(struct.unpack_from('<3f', pos_buf, pos_offset + i * 12))
+
+            idx_acc_idx = prim.get('indices')
+            if idx_acc_idx is not None:
+                idx_acc = accessors[idx_acc_idx]
+                idx_bv = bufferViews[idx_acc['bufferView']]
+                idx_buf = get_buf(idx_bv.get('buffer', 0))
+                idx_offset = idx_bv.get('byteOffset', 0) + idx_acc.get('byteOffset', 0)
+                ctype = idx_acc['componentType']
+                icount = idx_acc['count']
+                indices = []
+                fmt = '<H' if ctype == 5123 else ('<I' if ctype == 5125 else '<B')
+                step = 2 if ctype == 5123 else (4 if ctype == 5125 else 1)
+                for i in range(icount):
+                    val, = struct.unpack_from(fmt, idx_buf, idx_offset + i * step)
+                    indices.append(val)
+                for i in range(0, len(indices), 3):
+                    p1, p2, p3 = verts[indices[i]], verts[indices[i+1]], verts[indices[i+2]]
+                    triangles.append((calc_normal(p1, p2, p3), p1, p2, p3))
+            else:
+                for i in range(0, len(verts), 3):
+                    p1, p2, p3 = verts[i], verts[i+1], verts[i+2]
+                    triangles.append((calc_normal(p1, p2, p3), p1, p2, p3))
+
+    return write_stl(out_stl_path, triangles)
+
+# 3. Collada (.dae) Converter
+def convert_dae_to_stl(in_path, out_stl_path):
+    root = ET.parse(in_path).getroot()
+    ns = {'c': 'http://www.collada.org/2005/11/COLLADASchema'}
+    triangles = []
+    for mesh in root.findall('.//c:mesh', ns):
+        positions = {}
+        for src in mesh.findall('c:source', ns):
+            sid = src.attrib.get('id', '')
+            fa = src.find('c:float_array', ns)
+            if fa is not None and fa.text:
+                fl = [float(x) for x in fa.text.split()]
+                positions[sid] = [(fl[i], fl[i+1], fl[i+2]) for i in range(0, len(fl), 3)]
+        pos_id = None
+        vn = mesh.find('c:vertices', ns)
+        if vn is not None:
+            for inp in vn.findall('c:input', ns):
+                if inp.attrib.get('semantic') == 'POSITION':
+                    pos_id = inp.attrib.get('source', '').lstrip('#')
+        verts = positions.get(pos_id, [])
+        for prim in mesh.findall('c:triangles', ns) + mesh.findall('c:polylist', ns):
+            inputs = prim.findall('c:input', ns)
+            stride = max([int(inp.attrib.get('offset', 0)) for inp in inputs], default=0) + 1
+            pos_offset = 0
+            for inp in inputs:
+                if inp.attrib.get('semantic') in ('VERTEX', 'POSITION'):
+                    pos_offset = int(inp.attrib.get('offset', 0))
+            p_elem = prim.find('c:p', ns)
+            if p_elem is not None and p_elem.text:
+                idx = [int(x) for x in p_elem.text.split()]
+                vcount = prim.find('c:vcount', ns)
+                if vcount is not None and vcount.text:
+                    counts = [int(x) for x in vcount.text.split()]
+                    curr = 0
+                    for c in counts:
+                        poly = [idx[curr + j * stride + pos_offset] for j in range(c)]
+                        for j in range(1, c - 1):
+                            p1, p2, p3 = verts[poly[0]], verts[poly[j]], verts[poly[j+1]]
+                            triangles.append((calc_normal(p1, p2, p3), p1, p2, p3))
+                        curr += c * stride
+                else:
+                    for i in range(0, len(idx), 3 * stride):
+                        p1 = verts[idx[i + pos_offset]]
+                        p2 = verts[idx[i + stride + pos_offset]]
+                        p3 = verts[idx[i + 2 * stride + pos_offset]]
+                        triangles.append((calc_normal(p1, p2, p3), p1, p2, p3))
+    return write_stl(out_stl_path, triangles)
+
+# 4. 3DS (.3ds) Converter
+def convert_3ds_to_stl(in_path, out_stl_path):
+    with open(in_path, 'rb') as f:
+        data = f.read()
+    triangles = []
+    def parse_chunks(offset, end):
+        cur_verts = []
+        while offset < end:
+            if offset + 6 > len(data):
+                break
+            cid, clen = struct.unpack('<HI', data[offset:offset+6])
+            if clen < 6:
+                break
+            c_end = min(offset + clen, end)
+            if cid in (0x4D4D, 0x3D3D, 0x4100):
+                parse_chunks(offset + 6, c_end)
+            elif cid == 0x4000:
+                p = offset + 6
+                while p < c_end and data[p] != 0:
+                    p += 1
+                parse_chunks(p + 1, c_end)
+            elif cid == 0x4110:
+                nv, = struct.unpack('<H', data[offset+6:offset+8])
+                cur_verts = [struct.unpack('<3f', data[offset+8+i*12:offset+8+(i+1)*12]) for i in range(nv)]
+            elif cid == 0x4120:
+                nf, = struct.unpack('<H', data[offset+6:offset+8])
+                for i in range(nf):
+                    a, b, c, _ = struct.unpack('<4H', data[offset+8+i*8:offset+8+(i+1)*8])
+                    if a < len(cur_verts) and b < len(cur_verts) and c < len(cur_verts):
+                        p1, p2, p3 = cur_verts[a], cur_verts[b], cur_verts[c]
+                        triangles.append((calc_normal(p1, p2, p3), p1, p2, p3))
+            offset += clen
+    parse_chunks(0, len(data))
+    return write_stl(out_stl_path, triangles)
+
+# 5. G-Code (.gcode) Converter
+def convert_gcode_to_stl(in_path, out_stl_path):
+    segs = []
+    cur_x, cur_y, cur_z = 0.0, 0.0, 0.0
+    has_pos = False
+    with open(in_path, 'r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith(';') or line.startswith('('):
+                continue
+            line = line.split(';')[0].strip()
+            if line.startswith('G0') or line.startswith('G1'):
+                parts = line.split()
+                nx, ny, nz = cur_x, cur_y, cur_z
+                moved = False
+                for p in parts[1:]:
+                    if p.startswith('X'): nx = float(p[1:]); moved = True
+                    elif p.startswith('Y'): ny = float(p[1:]); moved = True
+                    elif p.startswith('Z'): nz = float(p[1:]); moved = True
+                if moved:
+                    if has_pos:
+                        dx, dy, dz = nx - cur_x, ny - cur_y, nz - cur_z
+                        dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                        if dist > 0.05:
+                            segs.append(((cur_x, cur_y, cur_z), (nx, ny, nz)))
+                    has_pos = True
+                    cur_x, cur_y, cur_z = nx, ny, nz
+    if not segs:
+        return False
+
+    all_x = [s[0][0] for s in segs] + [s[1][0] for s in segs]
+    all_y = [s[0][1] for s in segs] + [s[1][1] for s in segs]
+    all_z = [s[0][2] for s in segs] + [s[1][2] for s in segs]
+    max_dim = max(max(all_x)-min(all_x), max(all_y)-min(all_y), max(all_z)-min(all_z), 1.0)
+    r = max(max_dim * 0.004, 0.08)
+
+    triangles = []
+    for p1, p2 in segs:
+        dx, dy, dz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
+        l = math.sqrt(dx*dx + dy*dy + dz*dz)
+        if l < 1e-5: continue
+        dir_v = (dx/l, dy/l, dz/l)
+        ref = (0.0, 0.0, 1.0) if (abs(dir_v[0]) < 0.9 and abs(dir_v[1]) < 0.9) else (0.0, 1.0, 0.0)
+        u1x, u1y, u1z = dir_v[1]*ref[2]-dir_v[2]*ref[1], dir_v[2]*ref[0]-dir_v[0]*ref[2], dir_v[0]*ref[1]-dir_v[1]*ref[0]
+        l1 = math.sqrt(u1x*u1x + u1y*u1y + u1z*u1z)
+        if l1 < 1e-6: continue
+        u1 = (u1x/l1 * r, u1y/l1 * r, u1z/l1 * r)
+        u2 = ((dir_v[1]*u1[2]-dir_v[2]*u1[1]), (dir_v[2]*u1[0]-dir_v[0]*u1[2]), (dir_v[0]*u1[1]-dir_v[1]*u1[0]))
+
+        q1a = (p1[0]-u1[0], p1[1]-u1[1], p1[2]-u1[2])
+        q1b = (p1[0]+u1[0], p1[1]+u1[1], p1[2]+u1[2])
+        q1c = (p2[0]+u1[0], p2[1]+u1[1], p2[2]+u1[2])
+        q1d = (p2[0]-u1[0], p2[1]-u1[1], p2[2]-u1[2])
+        n1 = calc_normal(q1a, q1b, q1c)
+        triangles.append((n1, q1a, q1b, q1c))
+        triangles.append((n1, q1a, q1c, q1d))
+
+        q2a = (p1[0]-u2[0], p1[1]-u2[1], p1[2]-u2[2])
+        q2b = (p1[0]+u2[0], p1[1]+u2[1], p1[2]+u2[2])
+        q2c = (p2[0]+u2[0], p2[1]+u2[1], p2[2]+u2[2])
+        q2d = (p2[0]-u2[0], p2[1]-u2[1], p2[2]-u2[2])
+        n2 = calc_normal(q2a, q2b, q2c)
+        triangles.append((n2, q2a, q2b, q2c))
+        triangles.append((n2, q2a, q2c, q2d))
+
+    return write_stl(out_stl_path, triangles)
+
+# 6. FBX (.fbx) Converter
+def convert_fbx_to_stl(in_path, out_stl_path):
+    with open(in_path, 'r', encoding='utf-8', errors='ignore') as f:
+        text = f.read()
+
+    triangles = []
+    # 6.1 Check polygonal mesh (Vertices + PolygonVertexIndex)
+    verts_m = re.search(r'Vertices:\s*\*(\d+)\s*\{\s*a:\s*([^}]+)\}', text)
+    poly_m = re.search(r'PolygonVertexIndex:\s*\*(\d+)\s*\{\s*a:\s*([^}]+)\}', text)
+    if verts_m and poly_m:
+        c_raw = [float(x) for x in verts_m.group(2).split(',') if x.strip()]
+        verts = [(c_raw[i], c_raw[i+1], c_raw[i+2]) for i in range(0, len(c_raw), 3)]
+        idx_raw = [int(x) for x in poly_m.group(2).split(',') if x.strip()]
+        poly = []
+        for raw_i in idx_raw:
+            if raw_i < 0:
+                poly.append(~raw_i)
+                for j in range(1, len(poly) - 1):
+                    p1, p2, p3 = verts[poly[0]], verts[poly[j]], verts[poly[j+1]]
+                    triangles.append((calc_normal(p1, p2, p3), p1, p2, p3))
+                poly = []
+            else:
+                poly.append(raw_i)
+
+    # 6.2 Check NURBS Curves (Points sections)
+    if not triangles:
+        points_all = re.findall(r'Points:\s*\*(\d+)\s*\{\s*a:\s*([^}]+)\}', text)
+        segs = []
+        for count_str, raw in points_all:
+            pts_raw = [float(x) for x in raw.replace('\n', '').split(',') if x.strip()]
+            pts = []
+            stride = 4 if len(pts_raw) % 4 == 0 else 3
+            for i in range(0, len(pts_raw), stride):
+                w = pts_raw[i+3] if stride == 4 and abs(pts_raw[i+3]) > 1e-4 else 1.0
+                pts.append((pts_raw[i]/w, pts_raw[i+1]/w, pts_raw[i+2]/w))
+            for i in range(len(pts) - 1):
+                segs.append((pts[i], pts[i+1]))
+
+        if segs:
+            all_x = [s[0][0] for s in segs] + [s[1][0] for s in segs]
+            all_y = [s[0][1] for s in segs] + [s[1][1] for s in segs]
+            all_z = [s[0][2] for s in segs] + [s[1][2] for s in segs]
+            max_dim = max(max(all_x)-min(all_x), max(all_y)-min(all_y), max(all_z)-min(all_z), 1.0)
+            r = max(max_dim * 0.005, 0.05)
+            for p1, p2 in segs:
+                dx, dy, dz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
+                l = math.sqrt(dx*dx + dy*dy + dz*dz)
+                if l < 1e-5: continue
+                dir_v = (dx/l, dy/l, dz/l)
+                ref = (0.0, 0.0, 1.0) if (abs(dir_v[0]) < 0.9 and abs(dir_v[1]) < 0.9) else (0.0, 1.0, 0.0)
+                u1x, u1y, u1z = dir_v[1]*ref[2]-dir_v[2]*ref[1], dir_v[2]*ref[0]-dir_v[0]*ref[2], dir_v[0]*ref[1]-dir_v[1]*ref[0]
+                l1 = math.sqrt(u1x*u1x + u1y*u1y + u1z*u1z)
+                if l1 < 1e-6: continue
+                u1 = (u1x/l1 * r, u1y/l1 * r, u1z/l1 * r)
+                u2 = ((dir_v[1]*u1[2]-dir_v[2]*u1[1]), (dir_v[2]*u1[0]-dir_v[0]*u1[2]), (dir_v[0]*u1[1]-dir_v[1]*u1[0]))
+                q1a = (p1[0]-u1[0], p1[1]-u1[1], p1[2]-u1[2])
+                q1b = (p1[0]+u1[0], p1[1]+u1[1], p1[2]+u1[2])
+                q1c = (p2[0]+u1[0], p2[1]+u1[1], p2[2]+u1[2])
+                q1d = (p2[0]-u1[0], p2[1]-u1[1], p2[2]-u1[2])
+                n1 = calc_normal(q1a, q1b, q1c)
+                triangles.append((n1, q1a, q1b, q1c))
+                triangles.append((n1, q1a, q1c, q1d))
+
+    return write_stl(out_stl_path, triangles)
+
+def convert_any_to_stl(input_file, out_file):
+    ext = os.path.splitext(input_file)[1].lower()
+    if ext in [".step", ".stp", ".iges", ".igs", ".brep", ".brp"]:
+        return convert_cad_to_stl(input_file, out_file)
+    elif ext in [".gltf", ".glb"]:
+        return convert_gltf_glb_to_stl(input_file, out_file)
+    elif ext == ".3mf":
+        return convert_3mf_to_stl(input_file, out_file)
+    elif ext == ".dae":
+        return convert_dae_to_stl(input_file, out_file)
+    elif ext == ".3ds":
+        return convert_3ds_to_stl(input_file, out_file)
+    elif ext == ".gcode":
+        return convert_gcode_to_stl(input_file, out_file)
+    elif ext == ".fbx":
+        return convert_fbx_to_stl(input_file, out_file)
+    return False
+
 def get_cad_info(file_path):
+    if not HAS_FREECAD:
+        return {}
     shape = Part.Shape()
     shape.read(file_path)
     bbox = shape.BoundBox
@@ -172,7 +513,7 @@ if __name__ == "__main__":
             print("Missing output file argument", file=sys.stderr)
             sys.exit(1)
         out_file = os.path.abspath(sys.argv[3])
-        if convert_cad_to_stl(input_file, out_file):
+        if convert_any_to_stl(input_file, out_file):
             print(f"SUCCESS: Converted {input_file} -> {out_file}")
             sys.exit(0)
         else:
@@ -180,7 +521,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
     elif cmd == "export":
-        if len(sys.argv) < 4:
+        if len(sys.argv) < 4 or not HAS_FREECAD:
             sys.exit(1)
         out_file = os.path.abspath(sys.argv[3])
         shape = Part.Shape()

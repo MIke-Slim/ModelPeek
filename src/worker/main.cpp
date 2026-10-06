@@ -366,6 +366,36 @@ bool LoadPCD(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB,
     return !tris.empty();
 }
 
+struct LineSeg { Vec3 p1, p2; };
+
+static void RibbonizeSegments(const std::vector<LineSeg>& segs, std::vector<Triangle>& tris, const Vec3& minB, const Vec3& maxB) {
+    float maxDim = std::max({maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z});
+    if (maxDim < 1e-4f) maxDim = 1.0f;
+    float r = std::max(maxDim * 0.0035f, 0.02f);
+
+    for (const auto& s : segs) {
+        Vec3 delta = s.p2 - s.p1;
+        float len = std::sqrt(delta.dot(delta));
+        if (len < 1e-5f) continue;
+        Vec3 dir = delta * (1.0f / len);
+        Vec3 ref = (std::abs(dir.x) < 0.9f && std::abs(dir.y) < 0.9f) ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
+        Vec3 u1 = dir.cross(ref).normalize() * r;
+        Vec3 u2 = dir.cross(u1).normalize() * r;
+
+        // Quad 1 (along u1)
+        Vec3 q1a = s.p1 - u1, q1b = s.p1 + u1, q1c = s.p2 + u1, q1d = s.p2 - u1;
+        Vec3 n1 = u2.normalize();
+        tris.push_back({ {q1a, q1b, q1c}, n1 });
+        tris.push_back({ {q1a, q1c, q1d}, n1 });
+
+        // Quad 2 (along u2)
+        Vec3 q2a = s.p1 - u2, q2b = s.p1 + u2, q2c = s.p2 + u2, q2d = s.p2 - u2;
+        Vec3 n2 = u1.normalize();
+        tris.push_back({ {q2a, q2b, q2c}, n2 });
+        tris.push_back({ {q2a, q2c, q2d}, n2 });
+    }
+}
+
 // AutoCAD DXF parser (LINE, 3DFACE, SOLID, CIRCLE, ARC, LWPOLYLINE)
 bool LoadDXF(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
     tris.clear();
@@ -375,7 +405,6 @@ bool LoadDXF(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB,
     FILE* f = _wfopen(wpath.c_str(), L"r");
     if (!f) return false;
 
-    struct LineSeg { Vec3 p1, p2; };
     std::vector<LineSeg> segs;
     std::vector<Triangle> rawFaces;
 
@@ -516,32 +545,148 @@ bool LoadDXF(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB,
     if (segs.empty() && rawFaces.empty()) return false;
 
     tris.insert(tris.end(), rawFaces.begin(), rawFaces.end());
-
-    float maxDim = std::max({maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z});
-    if (maxDim < 1e-4f) maxDim = 1.0f;
-    float r = std::max(maxDim * 0.0035f, 0.02f);
-
-    for (const auto& s : segs) {
-        Vec3 delta = s.p2 - s.p1;
-        float len = std::sqrt(delta.dot(delta));
-        if (len < 1e-5f) continue;
-        Vec3 dir = delta * (1.0f / len);
-        Vec3 ref = (std::abs(dir.x) < 0.9f && std::abs(dir.y) < 0.9f) ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
-        Vec3 u1 = dir.cross(ref).normalize() * r;
-        Vec3 u2 = dir.cross(u1).normalize() * r;
-
-        // Quad 1 (along u1)
-        Vec3 q1a = s.p1 - u1, q1b = s.p1 + u1, q1c = s.p2 + u1, q1d = s.p2 - u1;
-        Vec3 n1 = u2.normalize();
-        tris.push_back({ {q1a, q1b, q1c}, n1 });
-        tris.push_back({ {q1a, q1c, q1d}, n1 });
-
-        // Quad 2 (along u2)
-        Vec3 q2a = s.p1 - u2, q2b = s.p1 + u2, q2c = s.p2 + u2, q2d = s.p2 - u2;
-        Vec3 n2 = u1.normalize();
-        tris.push_back({ {q2a, q2b, q2c}, n2 });
-        tris.push_back({ {q2a, q2c, q2d}, n2 });
+    if (!segs.empty()) {
+        RibbonizeSegments(segs, tris, minB, maxB);
     }
+
+    return !tris.empty();
+}
+
+bool LoadGCode(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"r");
+    if (!f) return false;
+
+    std::vector<LineSeg> segs;
+    float curX = 0, curY = 0, curZ = 0;
+    bool hasPos = false;
+    char line[512];
+
+    while (fgets(line, sizeof(line), f)) {
+        char* p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == ';' || *p == '(' || *p == '\0' || *p == '\r' || *p == '\n') continue;
+
+        char* semi = strchr(p, ';');
+        if (semi) *semi = '\0';
+
+        if ((p[0] == 'G' || p[0] == 'g') && (p[1] == '0' || p[1] == '1')) {
+            float nx = curX, ny = curY, nz = curZ;
+            bool moved = false;
+            char* token = strtok(p + 2, " \t\r\n");
+            while (token) {
+                if (token[0] == 'X' || token[0] == 'x') { nx = (float)atof(token + 1); moved = true; }
+                else if (token[0] == 'Y' || token[0] == 'y') { ny = (float)atof(token + 1); moved = true; }
+                else if (token[0] == 'Z' || token[0] == 'z') { nz = (float)atof(token + 1); moved = true; }
+                token = strtok(NULL, " \t\r\n");
+            }
+            if (moved) {
+                if (hasPos) {
+                    float dx = nx - curX, dy = ny - curY, dz = nz - curZ;
+                    float dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+                    if (dist > 0.05f) {
+                        segs.push_back({ {curX, curY, curZ}, {nx, ny, nz} });
+                        minB.x = std::min({minB.x, curX, nx});
+                        minB.y = std::min({minB.y, curY, ny});
+                        minB.z = std::min({minB.z, curZ, nz});
+                        maxB.x = std::max({maxB.x, curX, nx});
+                        maxB.y = std::max({maxB.y, curY, ny});
+                        maxB.z = std::max({maxB.z, curZ, nz});
+                    }
+                }
+                hasPos = true;
+                curX = nx; curY = ny; curZ = nz;
+            }
+        }
+    }
+    fclose(f);
+
+    if (segs.empty()) return false;
+    RibbonizeSegments(segs, tris, minB, maxB);
+    return !tris.empty();
+}
+
+bool Load3DS(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"rb");
+    if (!f) return false;
+
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (fsize < 16) { fclose(f); return false; }
+
+    std::vector<uint8_t> data(fsize);
+    if (fread(data.data(), 1, fsize, f) != (size_t)fsize) { fclose(f); return false; }
+    fclose(f);
+
+    struct ChunkParser {
+        const uint8_t* pData;
+        size_t totalLen;
+        std::vector<Triangle>& outTris;
+        Vec3& outMin;
+        Vec3& outMax;
+
+        void parse(size_t offset, size_t end) {
+            std::vector<Vec3> curVerts;
+            while (offset + 6 <= end && offset + 6 <= totalLen) {
+                uint16_t cid = *(const uint16_t*)(pData + offset);
+                uint32_t clen = *(const uint32_t*)(pData + offset + 2);
+                if (clen < 6) break;
+                size_t c_end = std::min(offset + clen, end);
+
+                if (cid == 0x4D4D || cid == 0x3D3D || cid == 0x4100) {
+                    parse(offset + 6, c_end);
+                } else if (cid == 0x4000) {
+                    size_t p = offset + 6;
+                    while (p < c_end && pData[p] != 0) p++;
+                    p++; // skip null
+                    parse(p, c_end);
+                } else if (cid == 0x4110) {
+                    if (offset + 8 <= c_end) {
+                        uint16_t nv = *(const uint16_t*)(pData + offset + 6);
+                        curVerts.clear();
+                        curVerts.reserve(nv);
+                        const float* pf = (const float*)(pData + offset + 8);
+                        for (uint16_t i = 0; i < nv && (offset + 8 + (i+1)*12 <= c_end); ++i) {
+                            curVerts.push_back({ pf[i*3], pf[i*3+1], pf[i*3+2] });
+                        }
+                    }
+                } else if (cid == 0x4120) {
+                    if (offset + 8 <= c_end && !curVerts.empty()) {
+                        uint16_t nf = *(const uint16_t*)(pData + offset + 6);
+                        const uint16_t* pFace = (const uint16_t*)(pData + offset + 8);
+                        for (uint16_t i = 0; i < nf && (offset + 8 + (i+1)*8 <= c_end); ++i) {
+                            uint16_t a = pFace[i*4];
+                            uint16_t b = pFace[i*4+1];
+                            uint16_t c = pFace[i*4+2];
+                            if (a < curVerts.size() && b < curVerts.size() && c < curVerts.size()) {
+                                Vec3 v1 = curVerts[a], v2 = curVerts[b], v3 = curVerts[c];
+                                Vec3 norm = (v2 - v1).cross(v3 - v1).normalize();
+                                outTris.push_back({ {v1, v2, v3}, norm });
+                                outMin.x = std::min({outMin.x, v1.x, v2.x, v3.x});
+                                outMin.y = std::min({outMin.y, v1.y, v2.y, v3.y});
+                                outMin.z = std::min({outMin.z, v1.z, v2.z, v3.z});
+                                outMax.x = std::max({outMax.x, v1.x, v2.x, v3.x});
+                                outMax.y = std::max({outMax.y, v1.y, v2.y, v3.y});
+                                outMax.z = std::max({outMax.z, v1.z, v2.z, v3.z});
+                            }
+                        }
+                    }
+                }
+                offset += clen;
+            }
+        }
+    };
+
+    ChunkParser parser{ data.data(), (size_t)fsize, tris, minB, maxB };
+    parser.parse(0, (size_t)fsize);
 
     return !tris.empty();
 }
@@ -704,12 +849,19 @@ bool RunCadConverter(const std::wstring& inputStep, const std::wstring& outputSt
     cmdLine.push_back(L'\0');
 
     if (!CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        std::wcerr << L"CreateProcessW FAILED, err=" << GetLastError() << L" cmd=" << cmdStr << std::endl;
         return false;
     }
 
     WaitForSingleObject(pi.hProcess, 15000);
+    DWORD exitCode = 0;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
+
+    if (exitCode != 0) {
+        std::wcerr << L"Python process failed with exitCode=" << exitCode << L" cmd=" << cmdStr << std::endl;
+    }
 
     return PathFileExistsW(fullOut) == TRUE;
 }
@@ -724,34 +876,32 @@ bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int
 
     std::vector<Triangle> tris;
     Vec3 minB, maxB;
-    std::wstring meshToRender = input;
-    std::wstring tempStl = L"";
-
-    bool isCad = (ext == L".step" || ext == L".stp" || ext == L".iges" || ext == L".igs" || ext == L".brep" || ext == L".brp");
-    if (isCad) {
-        tempStl = output + L".tmp.stl";
-        if (!RunCadConverter(input, tempStl)) {
-            return false;
-        }
-        meshToRender = tempStl;
-        ext = L".stl";
-    }
-
     bool loaded = false;
+
+    // 1. Fast Native C++ loaders
     if (ext == L".stl") {
-        loaded = LoadSTL(meshToRender, tris, minB, maxB);
+        loaded = LoadSTL(input, tris, minB, maxB);
     } else if (ext == L".obj") {
-        loaded = LoadOBJ(meshToRender, tris, minB, maxB);
+        loaded = LoadOBJ(input, tris, minB, maxB);
     } else if (ext == L".ply") {
-        loaded = LoadPLY(meshToRender, tris, minB, maxB);
+        loaded = LoadPLY(input, tris, minB, maxB);
     } else if (ext == L".dxf") {
-        loaded = LoadDXF(meshToRender, tris, minB, maxB);
+        loaded = LoadDXF(input, tris, minB, maxB);
     } else if (ext == L".pcd") {
-        loaded = LoadPCD(meshToRender, tris, minB, maxB);
+        loaded = LoadPCD(input, tris, minB, maxB);
+    } else if (ext == L".gcode") {
+        loaded = LoadGCode(input, tris, minB, maxB);
+    } else if (ext == L".3ds") {
+        loaded = Load3DS(input, tris, minB, maxB);
     }
 
-    if (!tempStl.empty()) {
-        DeleteFileW(tempStl.c_str());
+    // 2. Extended formats conversion fallback (.step, .stp, .iges, .igs, .brep, .brp, .gltf, .glb, .3mf, .dae, .fbx, etc.)
+    if (!loaded) {
+        std::wstring tempStl = output + L".tmp.stl";
+        if (RunCadConverter(input, tempStl) && PathFileExistsW(tempStl.c_str())) {
+            loaded = LoadSTL(tempStl, tris, minB, maxB);
+            DeleteFileW(tempStl.c_str());
+        }
     }
 
     if (!loaded || tris.empty()) {

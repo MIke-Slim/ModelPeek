@@ -204,7 +204,7 @@ bool ModelPeekThumbnailProvider::GenerateThumbnail(const std::wstring& filePath,
     cmdLine.push_back(L'\0');
 
     if (CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 6000);
+        WaitForSingleObject(pi.hProcess, 20000);
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
     }

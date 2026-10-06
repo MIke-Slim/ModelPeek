@@ -51,11 +51,19 @@ $Worker = "$Root\dist\ModelPeekWorker.exe"
 $TempDir = [System.IO.Path]::GetTempPath()
 
 $formatsToTest = @(
-    @{ Name = "STL";  File = "sample_models\test_flange.stl" },
-    @{ Name = "OBJ";  File = "sample_models\tree.obj" },
-    @{ Name = "PLY";  File = "sample_models\dolphins.ply" },
-    @{ Name = "DXF";  File = "sample_models\mechanical_layout.dxf" },
-    @{ Name = "PCD";  File = "sample_models\lidar_scan.pcd" }
+    @{ Name = "STL";        File = "sample_models\test_flange.stl" },
+    @{ Name = "OBJ";        File = "sample_models\tree.obj" },
+    @{ Name = "PLY";        File = "sample_models\dolphins.ply" },
+    @{ Name = "DXF";        File = "sample_models\mechanical_layout.dxf" },
+    @{ Name = "PCD";        File = "sample_models\lidar_scan.pcd" },
+    @{ Name = "GCODE";      File = "sample_models\benchy.gcode" },
+    @{ Name = "GLTF";       File = "sample_models\box_embedded.gltf" },
+    @{ Name = "GLB";        File = "sample_models\DamagedHelmet.glb" },
+    @{ Name = "3DS";        File = "sample_models\portalgun.3ds" },
+    @{ Name = "DAE";        File = "sample_models\elf.dae" },
+    @{ Name = "3MF";        File = "sample_models\cube_gears.3mf" },
+    @{ Name = "FBX";        File = "sample_models\stanford_bunny.fbx" },
+    @{ Name = "STEP";       File = "sample_models\test_flange.step" }
 )
 
 foreach ($fmt in $formatsToTest) {

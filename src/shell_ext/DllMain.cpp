@@ -1,6 +1,8 @@
 #include <windows.h>
 #include <shlwapi.h>
 #include <shlobj.h>
+#include <vector>
+#include <string>
 #include "Guids.h"
 #include "ClassFactory.h"
 #include "ModelPeekThumbnailProvider.h"
@@ -118,13 +120,53 @@ STDAPI DllRegisterServer() {
         CLSID_PREVIEW_STRING,
         L"ModelPeek 3D Previewer");
 
-    // 4. Associate extensions
+    // 4. Associate extensions and their ProgIDs
     for (LPCWSTR ext : SUPPORTED_EXTS) {
         std::wstring shellExThumb = std::wstring(L"Software\\Classes\\") + ext + L"\\ShellEx\\{e357fccd-a995-4576-b01f-234630154e96}";
         SetRegString(root, shellExThumb.c_str(), NULL, CLSID_THUMBNAIL_STRING);
 
         std::wstring shellExPrev = std::wstring(L"Software\\Classes\\") + ext + L"\\ShellEx\\{8895b1c6-b41f-4c1c-a562-0d564250836f}";
         SetRegString(root, shellExPrev.c_str(), NULL, CLSID_PREVIEW_STRING);
+
+        // Also query any associated ProgIDs so Explorer uses ModelPeek even with 3rd party associations
+        std::vector<std::wstring> progIds;
+        auto QueryProgId = [&](HKEY hR, const std::wstring& kPath, LPCWSTR vName) {
+            HKEY hK = NULL;
+            if (RegOpenKeyExW(hR, kPath.c_str(), 0, KEY_READ, &hK) == ERROR_SUCCESS) {
+                WCHAR val[256] = {0};
+                DWORD sz = sizeof(val);
+                if (RegQueryValueExW(hK, vName, NULL, NULL, (LPBYTE)val, &sz) == ERROR_SUCCESS && val[0] != L'\0') {
+                    progIds.push_back(val);
+                }
+                RegCloseKey(hK);
+            }
+        };
+
+        QueryProgId(root, std::wstring(L"Software\\Classes\\") + ext, NULL);
+        QueryProgId(HKEY_CURRENT_USER, std::wstring(L"Software\\Classes\\") + ext, NULL);
+        QueryProgId(HKEY_LOCAL_MACHINE, std::wstring(L"Software\\Classes\\") + ext, NULL);
+        QueryProgId(HKEY_CURRENT_USER, std::wstring(L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\") + ext + L"\\UserChoice", L"ProgId");
+
+        HKEY hOpenWith = NULL;
+        std::wstring owPath = std::wstring(L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\") + ext + L"\\OpenWithProgids";
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, owPath.c_str(), 0, KEY_READ, &hOpenWith) == ERROR_SUCCESS) {
+            DWORD idx = 0;
+            WCHAR vName[256] = {0};
+            DWORD vLen = 256;
+            while (RegEnumValueW(hOpenWith, idx++, vName, &vLen, NULL, NULL, NULL, NULL) == ERROR_SUCCESS) {
+                if (vLen > 0) progIds.push_back(vName);
+                vLen = 256;
+            }
+            RegCloseKey(hOpenWith);
+        }
+
+        for (const auto& pid : progIds) {
+            if (pid.empty()) continue;
+            std::wstring pThumb = std::wstring(L"Software\\Classes\\") + pid + L"\\ShellEx\\{e357fccd-a995-4576-b01f-234630154e96}";
+            SetRegString(root, pThumb.c_str(), NULL, CLSID_THUMBNAIL_STRING);
+            std::wstring pPrev = std::wstring(L"Software\\Classes\\") + pid + L"\\ShellEx\\{8895b1c6-b41f-4c1c-a562-0d564250836f}";
+            SetRegString(root, pPrev.c_str(), NULL, CLSID_PREVIEW_STRING);
+        }
     }
 
     // Notify Explorer of shell changes

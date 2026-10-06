@@ -121,6 +121,37 @@ bool SetFormatRegistration(const std::wstring& ext, bool enable) {
     std::wstring thumbSub = L"Software\\Classes\\" + ext + L"\\ShellEx\\" + CLSID_THUMB_KEY;
     std::wstring prevSub  = L"Software\\Classes\\" + ext + L"\\ShellEx\\" + CLSID_PREV_KEY;
 
+    std::vector<std::wstring> progIds;
+    auto QueryProgId = [&](HKEY hR, const std::wstring& kPath, LPCWSTR vName) {
+        HKEY hK = NULL;
+        if (RegOpenKeyExW(hR, kPath.c_str(), 0, KEY_READ, &hK) == ERROR_SUCCESS) {
+            WCHAR val[256] = {0};
+            DWORD sz = sizeof(val);
+            if (RegQueryValueExW(hK, vName, NULL, NULL, (LPBYTE)val, &sz) == ERROR_SUCCESS && val[0] != L'\0') {
+                progIds.push_back(val);
+            }
+            RegCloseKey(hK);
+        }
+    };
+
+    QueryProgId(root, std::wstring(L"Software\\Classes\\") + ext, NULL);
+    QueryProgId(HKEY_CURRENT_USER, std::wstring(L"Software\\Classes\\") + ext, NULL);
+    QueryProgId(HKEY_LOCAL_MACHINE, std::wstring(L"Software\\Classes\\") + ext, NULL);
+    QueryProgId(HKEY_CURRENT_USER, std::wstring(L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\") + ext + L"\\UserChoice", L"ProgId");
+
+    HKEY hOpenWith = NULL;
+    std::wstring owPath = std::wstring(L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\") + ext + L"\\OpenWithProgids";
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, owPath.c_str(), 0, KEY_READ, &hOpenWith) == ERROR_SUCCESS) {
+        DWORD idx = 0;
+        WCHAR vName[256] = {0};
+        DWORD vLen = 256;
+        while (RegEnumValueW(hOpenWith, idx++, vName, &vLen, NULL, NULL, NULL, NULL) == ERROR_SUCCESS) {
+            if (vLen > 0) progIds.push_back(vName);
+            vLen = 256;
+        }
+        RegCloseKey(hOpenWith);
+    }
+
     if (enable) {
         HKEY hKey;
         if (RegCreateKeyExW(root, thumbSub.c_str(), 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
@@ -130,6 +161,20 @@ bool SetFormatRegistration(const std::wstring& ext, bool enable) {
         if (RegCreateKeyExW(root, prevSub.c_str(), 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
             RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE*)CLSID_PREV_VAL, (DWORD)((wcslen(CLSID_PREV_VAL) + 1) * sizeof(WCHAR)));
             RegCloseKey(hKey);
+        }
+
+        for (const auto& pid : progIds) {
+            if (pid.empty()) continue;
+            std::wstring pThumb = std::wstring(L"Software\\Classes\\") + pid + L"\\ShellEx\\" + CLSID_THUMB_KEY;
+            std::wstring pPrev  = std::wstring(L"Software\\Classes\\") + pid + L"\\ShellEx\\" + CLSID_PREV_KEY;
+            if (RegCreateKeyExW(root, pThumb.c_str(), 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+                RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE*)CLSID_THUMB_VAL, (DWORD)((wcslen(CLSID_THUMB_VAL) + 1) * sizeof(WCHAR)));
+                RegCloseKey(hKey);
+            }
+            if (RegCreateKeyExW(root, pPrev.c_str(), 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+                RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE*)CLSID_PREV_VAL, (DWORD)((wcslen(CLSID_PREV_VAL) + 1) * sizeof(WCHAR)));
+                RegCloseKey(hKey);
+            }
         }
     } else {
         if (IsRunAsAdmin()) {
