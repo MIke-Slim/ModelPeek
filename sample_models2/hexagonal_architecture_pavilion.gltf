@@ -1,0 +1,89 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "ModelPeek TestSuite"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "HexagonalPavilion"
+    }
+  ],
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0
+          },
+          "indices": 1,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 13,
+      "type": "VEC3",
+      "max": [
+        60.0,
+        65.0,
+        60.0
+      ],
+      "min": [
+        -60.0,
+        0.0,
+        -60.0
+      ]
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 0,
+      "componentType": 5123,
+      "count": 36,
+      "type": "SCALAR",
+      "max": [
+        12
+      ],
+      "min": [
+        0
+      ]
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 156,
+      "target": 34962
+    },
+    {
+      "buffer": 1,
+      "byteOffset": 0,
+      "byteLength": 72,
+      "target": 34963
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "data:application/octet-stream;base64,AAAAAAAAgkIAAAAAAABIQgAAAAAAAAAAAABmQgAADEIAAAAAAADIQQAAAACANC1CAADmQQAADEKTL0dCAADIwQAAAACANC1CAADmwQAADEKTL0dCAABIwgAAAADdnNwnAABmwgAADEJltP0nAADIwQAAAACANC3CAADmwQAADEKTL0fCAADIQQAAAACANC3CAADmQQAADEKTL0fC",
+      "byteLength": 156
+    },
+    {
+      "uri": "data:application/octet-stream;base64,AAACAAQAAQACAAIAAAAEAAYAAwAEAAQAAAAGAAgABQAGAAYAAAAIAAoABwAIAAgAAAAKAAwACQAKAAoAAAAMAAIACwAMAAwA",
+      "byteLength": 72
+    }
+  ]
+}

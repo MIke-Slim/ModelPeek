@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+  <asset>
+    <contributor><author>ModelPeek</author></contributor>
+    <created>2026-10-06T10:00:00</created>
+    <unit name="meter" meter="1.0"/>
+    <up_axis>Z_UP</up_axis>
+  </asset>
+  <library_geometries>
+    <geometry id="Cube-mesh" name="SatelliteBody">
+      <mesh>
+        <source id="Cube-mesh-positions">
+          <float_array id="Cube-mesh-positions-array" count="24">
+            -10 -10 -15  10 -10 -15  10 10 -15  -10 10 -15
+            -10 -10  15  10 -10  15  10 10  15  -10 10  15
+          </float_array>
+          <technique_common>
+            <accessor source="#Cube-mesh-positions-array" count="8" stride="3">
+              <param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/>
+            </accessor>
+          </technique_common>
+        </source>
+        <vertices id="Cube-mesh-vertices">
+          <input semantic="POSITION" source="#Cube-mesh-positions"/>
+        </vertices>
+        <polylist count="6">
+          <input semantic="VERTEX" source="#Cube-mesh-vertices" offset="0"/>
+          <vcount>4 4 4 4 4 4</vcount>
+          <p>
+            0 1 2 3  4 7 6 5  0 4 5 1
+            1 5 6 2  2 6 7 3  3 7 4 0
+          </p>
+        </polylist>
+      </mesh>
+    </geometry>
+  </library_geometries>
+  <library_visual_scenes>
+    <visual_scene id="Scene" name="Scene">
+      <node id="Satellite" name="Satellite" type="NODE">
+        <instance_geometry url="#Cube-mesh"/>
+      </node>
+    </visual_scene>
+  </library_visual_scenes>
+  <scene>
+    <instance_visual_scene url="#Scene"/>
+  </scene>
+</COLLADA>
