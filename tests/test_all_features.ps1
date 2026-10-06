@@ -1,8 +1,8 @@
-# ModelPeek v2.1.1 Automated Test Suite
+# ModelPeek v2.1.2 Automated Test Suite
 $ErrorActionPreference = "Stop"
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "   ModelPeek v2.1.1 Verification Suite   " -ForegroundColor Cyan
+Write-Host "   ModelPeek v2.1.2 Verification Suite   " -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
 $Root = Split-Path -Parent $PSScriptRoot
@@ -29,7 +29,6 @@ Write-Host "`n1. Verifying Built Executables & Binaries..." -ForegroundColor Yel
 Assert-Check "ModelPeekExtension.dll exists" { Test-Path "$Root\dist\ModelPeekExtension.dll" }
 Assert-Check "ModelPeekWorker.exe exists" { Test-Path "$Root\dist\ModelPeekWorker.exe" }
 Assert-Check "ModelPeekSettings.exe exists" { Test-Path "$Root\dist\ModelPeekSettings.exe" }
-Assert-Check "ModelPeekPeek.exe (QuickLook) exists" { Test-Path "$Root\dist\ModelPeekPeek.exe" }
 Assert-Check "WebView2Loader.dll exists" { Test-Path "$Root\dist\WebView2Loader.dll" }
 
 Write-Host "`n2. Verifying Viewer Engine & Loaders..." -ForegroundColor Yellow
@@ -63,7 +62,9 @@ $formatsToTest = @(
     @{ Name = "DAE";        File = "sample_models\elf.dae" },
     @{ Name = "3MF";        File = "sample_models\cube_gears.3mf" },
     @{ Name = "FBX";        File = "sample_models\stanford_bunny.fbx" },
-    @{ Name = "STEP";       File = "sample_models\test_flange.step" }
+    @{ Name = "STEP";       File = "sample_models\test_flange.step" },
+    @{ Name = "IGES";       File = "sample_models\sample_bracket.iges" },
+    @{ Name = "BREP";       File = "sample_models\sample_bracket.brep" }
 )
 
 foreach ($fmt in $formatsToTest) {
@@ -77,11 +78,14 @@ foreach ($fmt in $formatsToTest) {
     if (Test-Path $outBmp) { Remove-Item -Force $outBmp }
 }
 
-Write-Host "`n4. Verifying Spacebar QuickLook Daemon Options..." -ForegroundColor Yellow
-Assert-Check "ModelPeekPeek.exe responds to --status" {
-    $proc = Start-Process "$Root\dist\ModelPeekPeek.exe" -ArgumentList "--status" -Wait -PassThru -NoNewWindow
-    $true
-}
+Write-Host "`n4. Verifying Native CAD Converter (STEP/IGES -> STL)..." -ForegroundColor Yellow
+$testStep = Join-Path $Root "sample_models\test_flange.step"
+$testOutStl = Join-Path $TempDir "test_flange_converted.stl"
+if (Test-Path $testOutStl) { Remove-Item -Force $testOutStl }
+$procConv = Start-Process $Worker -ArgumentList "convert `"$testStep`" `"$testOutStl`"" -Wait -PassThru -NoNewWindow
+$convOk = ($procConv.ExitCode -eq 0) -and (Test-Path $testOutStl) -and ((Get-Item $testOutStl).Length -gt 100)
+Assert-Check "Native STEP -> STL Conversion" { $convOk }
+if (Test-Path $testOutStl) { Remove-Item -Force $testOutStl }
 
 Write-Host "`n5. Verifying Winget Manifests & Community Standards..." -ForegroundColor Yellow
 $WingetDir = "$Root\manifests\m\MIke-Slim\ModelPeek\2.1.0"

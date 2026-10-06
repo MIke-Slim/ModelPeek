@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
+#include <utility>
 
 struct Vec3 {
     float x, y, z;
@@ -691,6 +693,341 @@ bool Load3DS(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB,
     return !tris.empty();
 }
 
+bool LoadSTEP(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"rb");
+    if (!f) return false;
+
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (fsize <= 0 || fsize > 150 * 1024 * 1024) { fclose(f); return false; }
+
+    std::string content(fsize, '\0');
+    fread(&content[0], 1, fsize, f);
+    fclose(f);
+
+    std::unordered_map<int, Vec3> points;
+    std::unordered_map<int, int> vertex_to_point;
+    std::unordered_map<int, Vec3> vertices;
+    std::unordered_map<int, std::pair<int, int>> edge_curves;
+    std::unordered_map<int, std::pair<int, bool>> oriented_edges;
+    std::unordered_map<int, std::vector<int>> edge_loops_map;
+    std::vector<LineSeg> segs;
+    std::vector<Triangle> rawFaces;
+
+    auto updateBBox = [&](const Vec3& pt) {
+        minB.x = std::min(minB.x, pt.x); minB.y = std::min(minB.y, pt.y); minB.z = std::min(minB.z, pt.z);
+        maxB.x = std::max(maxB.x, pt.x); maxB.y = std::max(maxB.y, pt.y); maxB.z = std::max(maxB.z, pt.z);
+    };
+
+    size_t pos = 0;
+    while (pos < content.size()) {
+        size_t semiPos = content.find(';', pos);
+        if (semiPos == std::string::npos) break;
+
+        std::string stmt = content.substr(pos, semiPos - pos);
+        pos = semiPos + 1;
+
+        size_t hashPos = stmt.find('#');
+        if (hashPos == std::string::npos) continue;
+
+        size_t eqPos = stmt.find('=', hashPos);
+        if (eqPos == std::string::npos) continue;
+
+        std::string idStr = stmt.substr(hashPos + 1, eqPos - (hashPos + 1));
+        while (!idStr.empty() && (idStr.front() == ' ' || idStr.front() == '\t' || idStr.front() == '\r' || idStr.front() == '\n')) idStr.erase(0, 1);
+        while (!idStr.empty() && (idStr.back() == ' ' || idStr.back() == '\t' || idStr.back() == '\r' || idStr.back() == '\n')) idStr.pop_back();
+
+        int id = 0;
+        try { id = std::stoi(idStr); } catch (...) { continue; }
+
+        size_t parenOpen = stmt.find('(', eqPos);
+        if (parenOpen == std::string::npos) continue;
+
+        std::string type = stmt.substr(eqPos + 1, parenOpen - (eqPos + 1));
+        while (!type.empty() && (type.front() == ' ' || type.front() == '\t' || type.front() == '\r' || type.front() == '\n')) type.erase(0, 1);
+        while (!type.empty() && (type.back() == ' ' || type.back() == '\t' || type.back() == '\r' || type.back() == '\n')) type.pop_back();
+
+        if (type == "CARTESIAN_POINT") {
+            size_t innerOpen = stmt.find('(', parenOpen + 1);
+            size_t innerClose = stmt.find(')', innerOpen != std::string::npos ? innerOpen : parenOpen);
+            if (innerOpen != std::string::npos && innerClose != std::string::npos) {
+                std::string coordsStr = stmt.substr(innerOpen + 1, innerClose - (innerOpen + 1));
+                std::stringstream ss(coordsStr);
+                std::string part;
+                std::vector<float> vals;
+                while (std::getline(ss, part, ',')) {
+                    try { vals.push_back((float)std::stod(part)); } catch (...) {}
+                }
+                if (vals.size() == 3) {
+                    points[id] = { vals[0], vals[1], vals[2] };
+                }
+            }
+        } else if (type == "VERTEX_POINT") {
+            size_t pHash = stmt.find('#', parenOpen);
+            if (pHash != std::string::npos) {
+                try {
+                    int ptId = std::stoi(stmt.substr(pHash + 1));
+                    vertex_to_point[id] = ptId;
+                } catch (...) {}
+            }
+        } else if (type == "EDGE_CURVE") {
+            std::vector<int> refs;
+            size_t cur = parenOpen;
+            while ((cur = stmt.find('#', cur)) != std::string::npos) {
+                try { refs.push_back(std::stoi(stmt.substr(cur + 1))); } catch (...) {}
+                cur++;
+            }
+            if (refs.size() >= 2) {
+                edge_curves[id] = { refs[0], refs[1] };
+            }
+        } else if (type == "ORIENTED_EDGE") {
+            size_t eidHash = stmt.rfind('#');
+            if (eidHash != std::string::npos) {
+                try {
+                    int eid = std::stoi(stmt.substr(eidHash + 1));
+                    bool sense = (stmt.find(".T.") != std::string::npos);
+                    oriented_edges[id] = { eid, sense };
+                } catch (...) {}
+            }
+        } else if (type == "POLY_LOOP") {
+            std::vector<Vec3> loopPts;
+            size_t cur = parenOpen;
+            while ((cur = stmt.find('#', cur)) != std::string::npos) {
+                try {
+                    int pid = std::stoi(stmt.substr(cur + 1));
+                    if (points.count(pid)) loopPts.push_back(points[pid]);
+                } catch (...) {}
+                cur++;
+            }
+            if (loopPts.size() >= 3) {
+                Vec3 p0 = loopPts[0];
+                for (size_t i = 1; i + 1 < loopPts.size(); ++i) {
+                    Vec3 p1 = loopPts[i], p2 = loopPts[i + 1];
+                    Vec3 norm = (p1 - p0).cross(p2 - p0).normalize();
+                    rawFaces.push_back({ {p0, p1, p2}, norm });
+                }
+            }
+        } else if (type == "EDGE_LOOP") {
+            std::vector<int> oeList;
+            size_t cur = parenOpen;
+            while ((cur = stmt.find('#', cur)) != std::string::npos) {
+                try { oeList.push_back(std::stoi(stmt.substr(cur + 1))); } catch (...) {}
+                cur++;
+            }
+            if (!oeList.empty()) {
+                edge_loops_map[id] = oeList;
+            }
+        }
+    }
+
+    // Resolve vertices
+    for (const auto& [vid, ptId] : vertex_to_point) {
+        if (points.count(ptId)) {
+            vertices[vid] = points[ptId];
+            updateBBox(points[ptId]);
+        }
+    }
+
+    // Resolve edge curves into line segments
+    for (const auto& [eid, ec] : edge_curves) {
+        if (vertices.count(ec.first) && vertices.count(ec.second)) {
+            segs.push_back({ vertices[ec.first], vertices[ec.second] });
+        }
+    }
+
+    // Resolve edge loops into faces
+    for (const auto& [lid, oeList] : edge_loops_map) {
+        std::vector<Vec3> loopPts;
+        for (int oeId : oeList) {
+            if (oriented_edges.count(oeId)) {
+                auto [eid, sense] = oriented_edges[oeId];
+                if (edge_curves.count(eid)) {
+                    auto [v1, v2] = edge_curves[eid];
+                    int vId = sense ? v1 : v2;
+                    if (vertices.count(vId)) {
+                        loopPts.push_back(vertices[vId]);
+                    }
+                }
+            }
+        }
+        if (loopPts.size() >= 3) {
+            Vec3 p0 = loopPts[0];
+            for (size_t i = 1; i + 1 < loopPts.size(); ++i) {
+                Vec3 p1 = loopPts[i], p2 = loopPts[i + 1];
+                Vec3 norm = (p1 - p0).cross(p2 - p0).normalize();
+                rawFaces.push_back({ {p0, p1, p2}, norm });
+            }
+        }
+    }
+
+    if (rawFaces.empty() && segs.empty()) return false;
+
+    tris.insert(tris.end(), rawFaces.begin(), rawFaces.end());
+    if (tris.size() < 12 && !segs.empty()) {
+        RibbonizeSegments(segs, tris, minB, maxB);
+    }
+
+    return !tris.empty();
+}
+
+bool LoadIGES(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"r");
+    if (!f) return false;
+
+    std::string paramText;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        size_t len = strlen(line);
+        if (len >= 73 && line[72] == 'P') {
+            line[64] = '\0';
+            paramText += line;
+        }
+    }
+    fclose(f);
+
+    if (paramText.empty()) return false;
+
+    std::vector<LineSeg> segs;
+    auto updateBBox = [&](const Vec3& pt) {
+        minB.x = std::min(minB.x, pt.x); minB.y = std::min(minB.y, pt.y); minB.z = std::min(minB.z, pt.z);
+        maxB.x = std::max(maxB.x, pt.x); maxB.y = std::max(maxB.y, pt.y); maxB.z = std::max(maxB.z, pt.z);
+    };
+
+    std::stringstream ss(paramText);
+    std::string stmt;
+    while (std::getline(ss, stmt, ';')) {
+        std::stringstream ssStmt(stmt);
+        std::string part;
+        std::vector<std::string> parts;
+        while (std::getline(ssStmt, part, ',')) {
+            while (!part.empty() && (part.front() == ' ' || part.front() == '\t')) part.erase(0, 1);
+            while (!part.empty() && (part.back() == ' ' || part.back() == '\t')) part.pop_back();
+            if (!part.empty()) parts.push_back(part);
+        }
+        if (parts.empty()) continue;
+
+        int entityType = 0;
+        try { entityType = std::stoi(parts[0]); } catch (...) { continue; }
+
+        if (entityType == 110 && parts.size() >= 7) { // Line
+            try {
+                Vec3 p1 = { (float)std::stod(parts[1]), (float)std::stod(parts[2]), (float)std::stod(parts[3]) };
+                Vec3 p2 = { (float)std::stod(parts[4]), (float)std::stod(parts[5]), (float)std::stod(parts[6]) };
+                segs.push_back({ p1, p2 });
+                updateBBox(p1); updateBBox(p2);
+            } catch (...) {}
+        } else if (entityType == 100 && parts.size() >= 8) { // Circular Arc
+            try {
+                float zt = (float)std::stod(parts[1]);
+                float xc = (float)std::stod(parts[2]), yc = (float)std::stod(parts[3]);
+                float xs = (float)std::stod(parts[4]), ys = (float)std::stod(parts[5]);
+                float xe = (float)std::stod(parts[6]), ye = (float)std::stod(parts[7]);
+
+                float r = std::sqrt((xs - xc)*(xs - xc) + (ys - yc)*(ys - yc));
+                float a1 = std::atan2(ys - yc, xs - xc);
+                float a2 = std::atan2(ye - yc, xe - xc);
+                if (a2 <= a1) a2 += 2.0f * 3.14159265f;
+
+                const int S = 16;
+                Vec3 prev = { xs, ys, zt };
+                updateBBox(prev);
+                for (int i = 1; i <= S; ++i) {
+                    float a = a1 + (a2 - a1) * ((float)i / S);
+                    Vec3 cur = { xc + r * std::cos(a), yc + r * std::sin(a), zt };
+                    segs.push_back({ prev, cur });
+                    updateBBox(cur);
+                    prev = cur;
+                }
+            } catch (...) {}
+        }
+    }
+
+    if (segs.empty()) return false;
+    RibbonizeSegments(segs, tris, minB, maxB);
+    return !tris.empty();
+}
+
+bool LoadBREP(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"r");
+    if (!f) return false;
+
+    std::vector<Vec3> verts;
+    std::vector<LineSeg> segs;
+    char line[256];
+    bool inTShapes = false;
+    int veCountDown = 0;
+
+    auto updateBBox = [&](const Vec3& pt) {
+        minB.x = std::min(minB.x, pt.x); minB.y = std::min(minB.y, pt.y); minB.z = std::min(minB.z, pt.z);
+        maxB.x = std::max(maxB.x, pt.x); maxB.y = std::max(maxB.y, pt.y); maxB.z = std::max(maxB.z, pt.z);
+    };
+
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "TShapes", 7) == 0) { inTShapes = true; continue; }
+        if (inTShapes) {
+            if (strncmp(line, "Ve", 2) == 0) {
+                veCountDown = 2; // tolerance, then coords
+                continue;
+            }
+            if (veCountDown > 0) {
+                veCountDown--;
+                if (veCountDown == 0) {
+                    float x, y, z;
+                    if (sscanf(line, "%f %f %f", &x, &y, &z) == 3) {
+                        Vec3 pt = {x, y, z};
+                        verts.push_back(pt);
+                        updateBBox(pt);
+                    }
+                }
+            }
+        }
+    }
+    fclose(f);
+
+    if (verts.empty()) return false;
+
+    for (size_t i = 0; i + 1 < verts.size(); ++i) {
+        segs.push_back({ verts[i], verts[i+1] });
+    }
+
+    if (segs.empty()) return false;
+    RibbonizeSegments(segs, tris, minB, maxB);
+    return !tris.empty();
+}
+
+bool SaveSTL(const std::wstring& wpath, const std::vector<Triangle>& tris) {
+    if (tris.empty()) return false;
+    FILE* f = _wfopen(wpath.c_str(), L"wb");
+    if (!f) return false;
+    char header[80] = "ModelPeek Native High-Speed STL Exporter";
+    fwrite(header, 1, 80, f);
+    uint32_t count = (uint32_t)tris.size();
+    fwrite(&count, 4, 1, f);
+    for (const auto& t : tris) {
+        fwrite(&t.normal, 4, 3, f);
+        fwrite(&t.v[0], 4, 3, f);
+        fwrite(&t.v[1], 4, 3, f);
+        fwrite(&t.v[2], 4, 3, f);
+        uint16_t attr = 0;
+        fwrite(&attr, 2, 1, f);
+    }
+    fclose(f);
+    return true;
+}
+
 // 256x256 Soft Rasterizer for CAD Thumbnails
 void RenderThumbnail(const std::vector<Triangle>& tris, const Vec3& minB, const Vec3& maxB, int W, int H, const std::wstring& outBmp) {
     std::vector<uint32_t> pixels(W * H, 0xFF1E222B); // CAD dark slate background
@@ -893,6 +1230,12 @@ bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int
         loaded = LoadGCode(input, tris, minB, maxB);
     } else if (ext == L".3ds") {
         loaded = Load3DS(input, tris, minB, maxB);
+    } else if (ext == L".step" || ext == L".stp") {
+        loaded = LoadSTEP(input, tris, minB, maxB);
+    } else if (ext == L".iges" || ext == L".igs") {
+        loaded = LoadIGES(input, tris, minB, maxB);
+    } else if (ext == L".brep" || ext == L".brp") {
+        loaded = LoadBREP(input, tris, minB, maxB);
     }
 
     // 2. Extended formats conversion fallback (.step, .stp, .iges, .igs, .brep, .brp, .gltf, .glb, .3mf, .dae, .fbx, etc.)
@@ -984,7 +1327,30 @@ int main(int, char*[]) {
     } else if (cmd == L"convert" && argc >= 4) {
         std::wstring input = argv[2];
         std::wstring output = argv[3];
-        if (RunCadConverter(input, output)) {
+
+        std::wstring ext;
+        size_t dot = input.find_last_of(L'.');
+        if (dot != std::wstring::npos) {
+            ext = input.substr(dot);
+            for (auto& c : ext) c = towlower(c);
+        }
+
+        bool converted = false;
+        std::vector<Triangle> tris;
+        Vec3 minB, maxB;
+        if (ext == L".step" || ext == L".stp") {
+            if (LoadSTEP(input, tris, minB, maxB) && SaveSTL(output, tris)) converted = true;
+        } else if (ext == L".iges" || ext == L".igs") {
+            if (LoadIGES(input, tris, minB, maxB) && SaveSTL(output, tris)) converted = true;
+        } else if (ext == L".brep" || ext == L".brp") {
+            if (LoadBREP(input, tris, minB, maxB) && SaveSTL(output, tris)) converted = true;
+        }
+
+        if (!converted) {
+            converted = RunCadConverter(input, output);
+        }
+
+        if (converted) {
             std::wcout << L"SUCCESS" << std::endl;
             LocalFree(argv);
             return 0;

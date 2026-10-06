@@ -24,10 +24,4 @@ if (Test-Path $SampleModels) {
 Get-ChildItem -Path (Join-Path $Root "dist") -Filter "test_*" -File | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path (Join-Path $Root "dist") -Filter "thumb_test_*" -File | Remove-Item -Force -ErrorAction SilentlyContinue
 
-# Restart ModelPeekPeek
-$PeekExe = Join-Path $Root "dist\ModelPeekPeek.exe"
-if (Test-Path $PeekExe) {
-    Start-Process -FilePath $PeekExe -WindowStyle Hidden
-}
-
 Write-Host "ModelPeek cache refreshed and sample models touched successfully!"

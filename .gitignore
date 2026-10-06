@@ -9,9 +9,13 @@ tools/*
 *.tmp
 *.tmp.*
 *.zip
+*.old
+__pycache__/
+*.pyc
 dist/*Setup.exe
 dist/*_Setup.exe
 dist/*.o
+tests/*.exe
 release_staging/
 sample_models/*.bmp
 sample_models/*_out.*

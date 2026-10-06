@@ -6,29 +6,33 @@
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/mikeslim)
 [![Winget](https://img.shields.io/badge/Winget-MIke--Slim.ModelPeek-brightgreen)](https://github.com/microsoft/winget-pkgs)
 
-**ModelPeek** 是一个专为 Windows 资源管理器打造的轻量、高效、极其稳定的 **3D/CAD 预览与 QuickLook 扩展套件**。
+**ModelPeek** 是一个专为 Windows 资源管理器打造的轻量、高效、极其稳定的 **3D/CAD 原生预览与缩略图扩展套件**。
 
-无需启动庞大笨重的专业工业 CAD 软件，让 3D 与 CAD 模型文件像普通图片、PDF 一样，可以在 Windows 文件夹中直接呈现立体高清 3D 缩略图、在右侧预览窗格（`Alt + P`）中进行全交互式的 3D 旋转缩放剖切，并支持随时按下【空格键】（`Space`）唤起沉浸式 3D QuickLook 浮动视窗！
+无需启动庞大笨重的专业工业 CAD 软件，让 3D 与 CAD 模型文件像普通图片、PDF 一样，可以在 Windows 文件夹中直接呈现立体高清 3D 缩略图、在右侧预览窗格（`Alt + P`）中进行全交互式的 3D 旋转缩放剖切与工程尺寸标注！
 
 ---
 
-## 🚀 v2.1.1 重磅更新与稳定性加固
+## 🚀 v2.1.2 重磅更新与纯原生加固
 
-1. **🩺 Windows 11 多标签页（Tabbed Explorer）死句柄自愈机制**
+1. **⚡ 零外部依赖·原生 C++ 工业 CAD 解析引擎 (Zero-Dependency CAD)**
+   - 内置高性能原生 C++ STEP (`.step`, `.stp`)、IGES (`.iges`, `.igs`) 与 BREP (`.brep`, `.brp`) 几何解析器；
+   - 彻底摆脱对 1.3GB 庞大 FreeCAD 或外部 Python 环境的依赖，在任何纯净 Windows 10/11 机器与虚拟机中**真正开箱即用**，18 种格式全自动出图与 3D 预览！
+
+2. **🩺 Windows 11 多标签页（Tabbed Explorer）死句柄自愈机制**
    - 彻底修复 Windows 11 资源管理器在选项卡切换或多开时，`prevhost.exe` 传递失效宿主句柄导致的 `CreateWindowEx err=1400`（无效窗口句柄）及右侧预览窗格空白问题。
    - 内置三级宿主窗口智能重定向与正向尺寸保底（`ResolveValidParent`），确保在任何复杂标签页操作下 100% 稳定加载。
 
-2. **📐 AutoCAD 2023 专属图纸关联保护与防劫持**
+3. **📐 AutoCAD 2023 专属图纸关联保护与防劫持**
    - 彻底根除部分第三方办公套件对 `.dxf` 文件的强行劫持；恢复原生 AutoCAD 2023 官方默认双击关联与专属图标，同时保留 ModelPeek 的高清 3D/2D 缩略图与预览窗格交互。
 
-3. **📁 全新 19 款高精度工业模型测试套件 (`sample_models2`)**
+4. **📁 全新 19 款高精度工业模型测试套件 (`sample_models2`)**
    - 新增包含 PCD 激光雷达点云、IGES 超音速喷管曲面、BREP/STEP 阶梯轴、GCODE 螺旋塔刀路、DXF 机械法兰等涵盖全部 18 种格式的完整实测数据集。
 
-4. **📐 三维包围盒工程尺寸标注 (3D BBox Dimensions)**
+5. **📐 三维包围盒工程尺寸标注 (3D BBox Dimensions)**
    - 工具栏新增【📐 标注】按钮，一键生成模型三维包围盒工程线框与尺寸界线。
    - 沿 X、Y、Z 轴向动态渲染相机正对的 3D Sprite 胶囊标签（`X: ... mm`、`Y: ... mm`、`Z: ... mm`），带深度去遮挡与高清晰度抗锯齿。
 
-5. **🌐 完整中英双语国际化 (Full i18n Localization)**
+6. **🌐 完整中英双语国际化 (Full i18n Localization)**
    - 视口界面与工具提示自动检测系统语言（默认支持简体中文与英文），支持随时手动切换 `🇨🇳 简中` / `🇺🇸 EN`。
 
 ---
@@ -36,12 +40,12 @@
 ## 🌟 核心特性与架构设计
 
 - **原生物理级 3D 缩略图 (`IThumbnailProvider`)**
-  - 文件夹图标直接显示真实三维光照立体图。
-  - 内置高性能离线**软件光栅化引擎 (Software Rasterizer)**，完全不占用 GPU 显存，毫秒级快速生成，永不因显卡驱动重置拖死资源管理器。
-  - 本地二级磁盘缓存机制，二次打开文件夹瞬间秒开。
+   - 文件夹图标直接显示真实三维光照立体图。
+   - 内置高性能离线**软件光栅化引擎 (Software Rasterizer)**，完全不占用 GPU 显存，毫秒级快速生成，永不因显卡驱动重置拖死资源管理器。
+   - 本地二级磁盘缓存机制，二次打开文件夹瞬间秒开。
 
-- **右侧 3D 交互式预览窗格 (`IPreviewHandler`) & 空格悬浮窗 (`ModelPeekPeek.exe`)**
-  - 选中模型文件后，右侧预览窗格（`Alt + P`）或空格键（`Space`）自动加载自包含 3D 视口。
+- **右侧 3D 交互式预览窗格 (`IPreviewHandler`)**
+   - 选中模型文件后，右侧预览窗格（`Alt + P`）自动加载自包含 3D 视口。
   - **交互操作**：
     - **鼠标左键拖拽**：360° 轨道旋转视角
     - **鼠标右键拖拽**：平移视角
@@ -109,7 +113,7 @@ winget install MIke-Slim.ModelPeek
    - 点击右上角语言选择框随时切换中文与英文；
    - 点击零件树图标展开装配体，点击眼睛图标隐藏部件；
    - 顶部工具栏启用三维测距尺或动态剖切滑块。
-5. **控制中心**：启动 `ModelPeekSettings.exe`，自由管理 18 种格式开关、QuickLook 开机自启或清理磁盘缓存。
+5. **控制中心**：启动 `ModelPeekSettings.exe`，自由管理 18 种格式开关或一键清理磁盘缓存。
 
 ---
 
@@ -118,7 +122,7 @@ winget install MIke-Slim.ModelPeek
 项目采用完全便携的离线工具链，克隆代码后可一键编译打包：
 
 ```powershell
-# 1. 编译核心 DLL、Worker、QuickLook 守护进程与控制中心
+# 1. 编译核心 DLL、Worker 与控制中心
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 
 # 2. 运行自动化全功能测试验证套件 (24 项测试)
@@ -130,11 +134,10 @@ powershell -ExecutionPolicy Bypass -File scripts\package_release.ps1
 
 ### 目录结构说明
 - `src/shell_ext/`：64 位 COM 原生扩展（`IThumbnailProvider`、`IPreviewHandler`、WebView2 宿主桥接、命名管道 IPC 客户端）
-- `src/peek/`：独立空格键快速预览守护进程（`ModelPeekPeek.exe`）
 - `src/viewer/`：自包含 Three.js 交互视口（离线 HTML/CSS/JS、装配结构树、3D 包围盒标注、双语 i18n、主题切换）
-- `src/worker/`：独立后台 Worker（CAD 几何解析、DXF/PCD 解析器、软件光栅化渲染器、命名管道守护进程服务端）
+- `src/worker/`：独立后台 Worker（内置原生 C++ STEP/IGES/BREP/DXF/PCD 解析器、软件光栅化渲染器、命名管道守护进程服务端）
 - `src/settings/`：原生 Win32 GUI 配置中心（`ModelPeekSettings.exe`）
-- `src/installer/`：原生单文件安装向导（`ModelPeek_v2.1.1_Setup.exe`）
+- `src/installer/`：原生单文件安装向导（`ModelPeek_Setup.exe`）
 - `manifests/`：官方 Microsoft Winget 软件包清单
 - `sample_models/` 与 `sample_models2/`：18 种格式工业与 3D 测试验证用例集合
 - `tests/`：自动化测试脚本套件

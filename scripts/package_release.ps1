@@ -1,8 +1,8 @@
 # ModelPeek Release Packaging Script
 $ErrorActionPreference = "Stop"
 
-$Version = "v2.1.1"
-$VerNum = "2.1.1"
+$Version = "v2.1.2"
+$VerNum = "2.1.2"
 $Root = Split-Path -Parent $PSScriptRoot
 $Gxx = Join-Path $Root "tools\w64devkit\bin\g++.exe"
 $Windres = Join-Path $Root "tools\w64devkit\bin\windres.exe"
@@ -24,7 +24,6 @@ New-Item -ItemType Directory -Path $Staging | Out-Null
 Copy-Item -Force "$Root\dist\ModelPeekExtension.dll" $Staging
 Copy-Item -Force "$Root\dist\ModelPeekWorker.exe" $Staging
 Copy-Item -Force "$Root\dist\ModelPeekSettings.exe" $Staging
-Copy-Item -Force "$Root\dist\ModelPeekPeek.exe" $Staging
 Copy-Item -Force "$Root\dist\WebView2Loader.dll" $Staging
 Copy-Item -Force "$Root\dist\cad_processor.py" $Staging
 Copy-Item -Force "$Root\dist\install.bat" $Staging

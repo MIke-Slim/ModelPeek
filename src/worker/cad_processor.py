@@ -145,24 +145,163 @@ def edges_to_stl(edges, bbox, out_stl_path, sides=6):
 
     return write_stl(out_stl_path, triangles)
 
-def convert_cad_to_stl(cad_path, out_stl_path, deflection=0.1):
-    if not HAS_FREECAD:
-        print("ERROR: FreeCAD/Part not available for CAD BREP format", file=sys.stderr)
-        return False
-    shape = Part.Shape()
-    shape.read(cad_path)
-    if len(shape.Faces) > 0:
-        shape.exportStl(out_stl_path)
-        if os.path.exists(out_stl_path) and os.path.getsize(out_stl_path) > 0:
-            return True
+def convert_cad_fallback_to_stl(cad_path, out_stl_path):
+    ext = os.path.splitext(cad_path)[1].lower()
+    triangles = []
+    segs = []
 
-    if len(shape.Edges) > 0:
-        try:
-            return edges_to_stl(shape.Edges, shape.BoundBox, out_stl_path)
-        except Exception as e:
-            print(f"WARN: edges_to_stl failed: {e}", file=sys.stderr)
+    if ext in ['.step', '.stp']:
+        with open(cad_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        
+        points = {}
+        vertex_to_point = {}
+        vertices = {}
+        edge_curves = {}
+        oriented_edges = {}
+        edge_loops_map = {}
 
+        for stmt in content.split(';'):
+            h = stmt.find('#')
+            if h == -1: continue
+            eq = stmt.find('=', h)
+            if eq == -1: continue
+            id_str = stmt[h+1:eq].strip()
+            if not id_str.isdigit(): continue
+            eid = int(id_str)
+
+            paren = stmt.find('(', eq)
+            if paren == -1: continue
+            etype = stmt[eq+1:paren].strip()
+
+            if etype == 'CARTESIAN_POINT':
+                inner_open = stmt.find('(', paren + 1)
+                inner_close = stmt.find(')', inner_open if inner_open != -1 else paren)
+                if inner_open != -1 and inner_close != -1:
+                    coords = [float(x.strip()) for x in stmt[inner_open+1:inner_close].split(',') if x.strip()]
+                    if len(coords) == 3:
+                        points[eid] = tuple(coords)
+            elif etype == 'VERTEX_POINT':
+                p_hash = stmt.find('#', paren)
+                if p_hash != -1:
+                    digits = re.findall(r'\d+', stmt[p_hash:])
+                    if digits: vertex_to_point[eid] = int(digits[0])
+            elif etype == 'EDGE_CURVE':
+                refs = [int(x) for x in re.findall(r'#(\d+)', stmt[paren:])]
+                if len(refs) >= 2: edge_curves[eid] = (refs[0], refs[1])
+            elif etype == 'ORIENTED_EDGE':
+                refs = [int(x) for x in re.findall(r'#(\d+)', stmt[paren:])]
+                if refs: oriented_edges[eid] = (refs[-1], '.T.' in stmt)
+            elif etype == 'EDGE_LOOP':
+                refs = [int(x) for x in re.findall(r'#(\d+)', stmt[paren:])]
+                if refs: edge_loops_map[eid] = refs
+            elif etype == 'POLY_LOOP':
+                refs = [int(x) for x in re.findall(r'#(\d+)', stmt[paren:])]
+                pl_pts = [points[p] for p in refs if p in points]
+                if len(pl_pts) >= 3:
+                    p0 = pl_pts[0]
+                    for i in range(1, len(pl_pts) - 1):
+                        p1, p2 = pl_pts[i], pl_pts[i+1]
+                        triangles.append((calc_normal(p0, p1, p2), p0, p1, p2))
+
+        for vid, pid in vertex_to_point.items():
+            if pid in points: vertices[vid] = points[pid]
+
+        for eid, (v1, v2) in edge_curves.items():
+            if v1 in vertices and v2 in vertices:
+                segs.append((vertices[v1], vertices[v2]))
+
+        for lid, oe_list in edge_loops_map.items():
+            loop_pts = []
+            for oe in oe_list:
+                if oe in oriented_edges:
+                    ec_id, sense = oriented_edges[oe]
+                    if ec_id in edge_curves:
+                        v1, v2 = edge_curves[ec_id]
+                        v = v1 if sense else v2
+                        if v in vertices: loop_pts.append(vertices[v])
+            if len(loop_pts) >= 3:
+                p0 = loop_pts[0]
+                for i in range(1, len(loop_pts) - 1):
+                    p1, p2 = loop_pts[i], loop_pts[i+1]
+                    triangles.append((calc_normal(p0, p1, p2), p0, p1, p2))
+
+    elif ext in ['.iges', '.igs']:
+        with open(cad_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        p_lines = [l[:64] for l in lines if len(l) >= 73 and l[72] == 'P']
+        p_text = ''.join(p_lines)
+        for stmt in p_text.split(';'):
+            parts = [p.strip() for p in stmt.split(',') if p.strip()]
+            if not parts: continue
+            if parts[0] == '110' and len(parts) >= 7:
+                try:
+                    p1 = (float(parts[1]), float(parts[2]), float(parts[3]))
+                    p2 = (float(parts[4]), float(parts[5]), float(parts[6]))
+                    segs.append((p1, p2))
+                except: pass
+            elif parts[0] == '100' and len(parts) >= 8:
+                try:
+                    zt = float(parts[1])
+                    xc, yc = float(parts[2]), float(parts[3])
+                    xs, ys = float(parts[4]), float(parts[5])
+                    xe, ye = float(parts[6]), float(parts[7])
+                    r = math.sqrt((xs-xc)**2 + (ys-yc)**2)
+                    a1 = math.atan2(ys-yc, xs-xc)
+                    a2 = math.atan2(ye-yc, xe-xc)
+                    if a2 <= a1: a2 += 2.0 * math.pi
+                    prev = (xs, ys, zt)
+                    for s in range(1, 17):
+                        a = a1 + (a2 - a1) * (s / 16.0)
+                        cur = (xc + r * math.cos(a), yc + r * math.sin(a), zt)
+                        segs.append((prev, cur))
+                        prev = cur
+                except: pass
+
+    if segs and len(triangles) < 12:
+        all_x = [s[0][0] for s in segs] + [s[1][0] for s in segs]
+        all_y = [s[0][1] for s in segs] + [s[1][1] for s in segs]
+        all_z = [s[0][2] for s in segs] + [s[1][2] for s in segs]
+        max_dim = max(max(all_x)-min(all_x), max(all_y)-min(all_y), max(all_z)-min(all_z), 1.0)
+        r = max(max_dim * 0.005, 0.05)
+        for p1, p2 in segs:
+            dx, dy, dz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
+            l = math.sqrt(dx*dx + dy*dy + dz*dz)
+            if l < 1e-5: continue
+            dir_v = (dx/l, dy/l, dz/l)
+            ref = (0.0, 0.0, 1.0) if (abs(dir_v[0]) < 0.9 and abs(dir_v[1]) < 0.9) else (0.0, 1.0, 0.0)
+            u1x, u1y, u1z = dir_v[1]*ref[2]-dir_v[2]*ref[1], dir_v[2]*ref[0]-dir_v[0]*ref[2], dir_v[0]*ref[1]-dir_v[1]*ref[0]
+            l1 = math.sqrt(u1x*u1x + u1y*u1y + u1z*u1z)
+            if l1 < 1e-6: continue
+            u1 = (u1x/l1 * r, u1y/l1 * r, u1z/l1 * r)
+            q1a = (p1[0]-u1[0], p1[1]-u1[1], p1[2]-u1[2])
+            q1b = (p1[0]+u1[0], p1[1]+u1[1], p1[2]+u1[2])
+            q1c = (p2[0]+u1[0], p2[1]+u1[1], p2[2]+u1[2])
+            q1d = (p2[0]-u1[0], p2[1]-u1[1], p2[2]-u1[2])
+            n1 = calc_normal(q1a, q1b, q1c)
+            triangles.append((n1, q1a, q1b, q1c))
+            triangles.append((n1, q1a, q1c, q1d))
+
+    if triangles:
+        return write_stl(out_stl_path, triangles)
     return False
+
+def convert_cad_to_stl(cad_path, out_stl_path, deflection=0.1):
+    if HAS_FREECAD:
+        try:
+            shape = Part.Shape()
+            shape.read(cad_path)
+            if len(shape.Faces) > 0:
+                shape.exportStl(out_stl_path)
+                if os.path.exists(out_stl_path) and os.path.getsize(out_stl_path) > 0:
+                    return True
+            if len(shape.Edges) > 0:
+                if edges_to_stl(shape.Edges, shape.BoundBox, out_stl_path):
+                    return True
+        except Exception as e:
+            print(f"WARN: FreeCAD conversion failed: {e}", file=sys.stderr)
+
+    return convert_cad_fallback_to_stl(cad_path, out_stl_path)
 
 # 1. 3MF Converter
 def convert_3mf_to_stl(in_path, out_stl_path):
