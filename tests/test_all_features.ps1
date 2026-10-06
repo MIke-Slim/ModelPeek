@@ -1,8 +1,8 @@
-# ModelPeek v2.1.0 Automated Test Suite
+# ModelPeek v2.1.1 Automated Test Suite
 $ErrorActionPreference = "Stop"
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "   ModelPeek v2.1.0 Verification Suite   " -ForegroundColor Cyan
+Write-Host "   ModelPeek v2.1.1 Verification Suite   " -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
 $Root = Split-Path -Parent $PSScriptRoot

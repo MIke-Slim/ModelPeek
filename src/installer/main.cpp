@@ -158,7 +158,7 @@ void RegisterUninstallEntry(const std::wstring& targetDir) {
     LPCWSTR subKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ModelPeek";
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, subKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         LPCWSTR name = L"ModelPeek 3D/CAD 资源管理器预览扩展";
-        LPCWSTR ver = L"2.1.0";
+        LPCWSTR ver = L"2.1.1";
         LPCWSTR pub = L"ModelPeek Team";
         std::wstring uninst = targetDir + L"\\uninstall.bat";
         std::wstring icon = targetDir + L"\\ModelPeekSettings.exe,0";
@@ -233,9 +233,9 @@ void DoInstallation(HWND hWnd) {
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 
     int ret = MessageBoxW(hWnd, 
-        L"🎉 ModelPeek v2.1.0 已成功安装并激活！\r\n\r\n"
+        L"🎉 ModelPeek v2.1.1 已成功安装并激活！\r\n\r\n"
         L"● 18 种 3D/CAD 格式立体缩略图已全面生效\r\n"
-        L"● 空格键快速预览 (Spacebar QuickLook) 守护进程已启动\r\n"
+        L"● 支持 Windows 11 多标签页智能自愈与 AutoCAD 2023 专属图纸关联\r\n"
         L"● 双击文件保持原有专业软件关联，绝不破坏现有工作流\r\n\r\n"
         L"是否立即打开 ModelPeek 控制中心进行个性化配置？", 
         L"安装完成", MB_YESNO | MB_ICONINFORMATION);
@@ -251,7 +251,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         // Banner header
-        HWND hBanner = CreateWindowExW(0, L"STATIC", L"ModelPeek 3D/CAD 资源管理器扩展 v2.1.0", 
+        HWND hBanner = CreateWindowExW(0, L"STATIC", L"ModelPeek 3D/CAD 资源管理器扩展 v2.1.1", 
             WS_CHILD | WS_VISIBLE | SS_LEFT, 20, 18, 560, 26, hWnd, NULL, GetModuleHandleW(NULL), NULL);
         SendMessageW(hBanner, WM_SETFONT, (WPARAM)g_hFontHeader, TRUE);
 

@@ -648,7 +648,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     wc.hIcon = LoadIconW(NULL, IDI_APPLICATION);
     RegisterClassExW(&wc);
 
-    HWND hWnd = CreateWindowExW(0, L"ModelPeekSettingsClass", L"ModelPeek 控制中心 (Settings v2.1.0)",
+    HWND hWnd = CreateWindowExW(0, L"ModelPeekSettingsClass", L"ModelPeek 控制中心 (Settings v2.1.1)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 645, 420,
         NULL, NULL, hInstance, NULL);

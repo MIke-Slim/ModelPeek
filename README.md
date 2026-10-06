@@ -11,29 +11,24 @@
 
 ---
 
-## 🚀 v2.1.0 重磅全新特性
+## 🚀 v2.1.1 重磅更新与稳定性加固
 
-1. **🚀 空格键快速预览 (Spacebar QuickLook)**
-   - 单击选中任意 3D/CAD 模型文件，轻按【空格键 (Space)】瞬间唤起独立沉浸式 3D 浮动视窗。
-   - 再次轻按【空格键】或【ESC】即可立刻关闭视窗，毫秒级无感唤醒。
-   - 在视窗打开时按键盘【↑ ↓ ← → 方向键】，可平滑切换浏览上一个/下一个模型，畅享极致的 CAD 浏览体验。
-   - 通过 `ModelPeekSettings.exe` 可一键开启/关闭后台守护进程与开机自启动。
+1. **🩺 Windows 11 多标签页（Tabbed Explorer）死句柄自愈机制**
+   - 彻底修复 Windows 11 资源管理器在选项卡切换或多开时，`prevhost.exe` 传递失效宿主句柄导致的 `CreateWindowEx err=1400`（无效窗口句柄）及右侧预览窗格空白问题。
+   - 内置三级宿主窗口智能重定向与正向尺寸保底（`ResolveValidParent`），确保在任何复杂标签页操作下 100% 稳定加载。
 
-2. **📐 三维包围盒工程尺寸标注 (3D BBox Dimensions)**
+2. **📐 AutoCAD 2023 专属图纸关联保护与防劫持**
+   - 彻底根除部分第三方办公套件对 `.dxf` 文件的强行劫持；恢复原生 AutoCAD 2023 官方默认双击关联与专属图标，同时保留 ModelPeek 的高清 3D/2D 缩略图与预览窗格交互。
+
+3. **📁 全新 19 款高精度工业模型测试套件 (`sample_models2`)**
+   - 新增包含 PCD 激光雷达点云、IGES 超音速喷管曲面、BREP/STEP 阶梯轴、GCODE 螺旋塔刀路、DXF 机械法兰等涵盖全部 18 种格式的完整实测数据集。
+
+4. **📐 三维包围盒工程尺寸标注 (3D BBox Dimensions)**
    - 工具栏新增【📐 标注】按钮，一键生成模型三维包围盒工程线框与尺寸界线。
    - 沿 X、Y、Z 轴向动态渲染相机正对的 3D Sprite 胶囊标签（`X: ... mm`、`Y: ... mm`、`Z: ... mm`），带深度去遮挡与高清晰度抗锯齿。
 
-3. **📁 格式扩充至 18 种主流 3D 与工业格式**
-   - **新增 AutoCAD 矢量图纸 (.dxf)**：内置零依赖纯 JS 解析引擎与 C++ 快速光栅化，完整支持 LINE、CIRCLE、ARC、LWPOLYLINE、3DFACE 与 SOLID 实体。
-   - **新增激光雷达点云 (.pcd)**：支持机器人与自动驾驶常见的 ASCII/Binary Point Cloud 点云数据直接三维空间粒子化展示与缩略图渲染。
-
-4. **🌐 完整中英双语国际化 (Full i18n Localization)**
-   - 视口界面与工具提示自动检测系统语言（默认支持简体中文与英文）。
-   - 视口顶部工具栏与控制中心支持随时手动切换 `🇨🇳 简中` / `🇺🇸 EN`。
-
-5. **📦 微软官方 Winget 软件包清单与开源治理标准**
-   - 包含符合官方规范的 Winget 安装清单（`manifests/m/MIke-Slim/ModelPeek/2.1.0/`），支持通过 `winget install MIke-Slim.ModelPeek` 终端一键安装。
-   - 配套标准 GitHub Issue/PR 社区开源模板。
+5. **🌐 完整中英双语国际化 (Full i18n Localization)**
+   - 视口界面与工具提示自动检测系统语言（默认支持简体中文与英文），支持随时手动切换 `🇨🇳 简中` / `🇺🇸 EN`。
 
 ---
 
@@ -86,7 +81,7 @@
 进入 [Releases 页面](https://github.com/MIke-Slim/ModelPeek/releases) 下载最新发行版：
 
 ### 方式一：独立安装向导（推荐）
-1. 下载 **`ModelPeek_v2.1.0_Setup.exe`**；
+1. 下载 **`ModelPeek_v2.1.1_Setup.exe`**；
 2. 双击运行安装向导，按提示点击【下一步】完成安装；
 3. 安装程序会自动完成 COM 注册、文件类型关联并在桌面和开始菜单创建快捷方式。
 
@@ -96,7 +91,7 @@ winget install MIke-Slim.ModelPeek
 ```
 
 ### 方式三：免安装便携绿色版
-1. 下载 **`ModelPeek_v2.1.0_Portable_x64.zip`**；
+1. 下载 **`ModelPeek_v2.1.1_Portable_x64.zip`**；
 2. 解压到您希望存放的任意目录（如 `C:\Program Files\ModelPeek`）；
 3. 右键点击 `install.bat`，选择 **【以管理员身份运行】** 即可完成激活；
 4. 若需卸载，右键管理员运行 `uninstall.bat` 即可干净清除，无残留。
@@ -107,8 +102,7 @@ winget install MIke-Slim.ModelPeek
 
 1. **查看缩略图**：打开任意包含 3D/CAD 文件的文件夹，将资源管理器视图切换为“大图标”或“超大图标”，即可看到立体渲染图。
 2. **开启预览窗格**：在资源管理器中按下键盘快捷键 **`Alt + P`**（或点击上方菜单栏的【查看】-【预览窗格】）。
-3. **空格键快速预览 (QuickLook)**：单击任意 3D/CAD 文件，按下 **【空格键 Space】** 即可弹出沉浸式 3D 浮动视窗，按方向键连续切换浏览。
-4. **视口交互操作**：
+3. **视口交互操作**：
    - 鼠标左键旋转视角、右键平移、滚轮缩放；
    - 点击顶部【📐 标注】按钮开启三维包围盒尺寸标注；
    - 点击右上角语言选择框随时切换中文与英文；
@@ -139,9 +133,9 @@ powershell -ExecutionPolicy Bypass -File scripts\package_release.ps1
 - `src/viewer/`：自包含 Three.js 交互视口（离线 HTML/CSS/JS、装配结构树、3D 包围盒标注、双语 i18n、主题切换）
 - `src/worker/`：独立后台 Worker（CAD 几何解析、DXF/PCD 解析器、软件光栅化渲染器、命名管道守护进程服务端）
 - `src/settings/`：原生 Win32 GUI 配置中心（`ModelPeekSettings.exe`）
-- `src/installer/`：原生单文件安装向导（`ModelPeek_v2.1.0_Setup.exe`）
+- `src/installer/`：原生单文件安装向导（`ModelPeek_v2.1.1_Setup.exe`）
 - `manifests/`：官方 Microsoft Winget 软件包清单
-- `sample_models/`：18 种格式测试验证用例集合
+- `sample_models/` 与 `sample_models2/`：18 种格式工业与 3D 测试验证用例集合
 - `tests/`：自动化测试脚本套件
 - `dist/`：打包编译产物发布目录
 
