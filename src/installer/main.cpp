@@ -203,17 +203,7 @@ void DoInstallation(HWND hWnd) {
     SetWindowTextW(g_hStatusLabel, L"正在创建快捷方式与配置快速预览守护进程...");
 
     std::wstring settingsExe = targetDir + L"\\ModelPeekSettings.exe";
-    std::wstring peekExe = targetDir + L"\\ModelPeekPeek.exe";
-
-    // Setup QuickLook autostart
-    HKEY hRunKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hRunKey) == ERROR_SUCCESS) {
-        std::wstring peekCmd = L"\"" + peekExe + L"\"";
-        RegSetValueExW(hRunKey, L"ModelPeekPeek", 0, REG_SZ, (const BYTE*)peekCmd.c_str(), (DWORD)((peekCmd.length() + 1) * sizeof(WCHAR)));
-        RegCloseKey(hRunKey);
-    }
-    // Launch QuickLook daemon
-    ShellExecuteW(NULL, L"open", peekExe.c_str(), NULL, targetDir.c_str(), SW_SHOWNORMAL);
+    // QuickLook feature temporarily disabled per user preference
 
     // Start Menu shortcut
     if (SendMessageW(g_hChkStartMenu, BM_GETCHECK, 0, 0) == BST_CHECKED) {

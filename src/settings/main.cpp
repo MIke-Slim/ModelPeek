@@ -375,7 +375,7 @@ void CreateStatusPanel(HWND hParent) {
     ss << L"● 安装运行目录: " << appDir << L"\r\n\r\n";
     ss << L"● COM 核心扩展 (ModelPeekExtension.dll): " << (PathFileExistsW(dllPath.c_str()) ? L"✓ 正常就绪" : L"✗ 缺失") << L"\r\n";
     ss << L"● 后台渲染进程 (ModelPeekWorker.exe): " << (PathFileExistsW(workerPath.c_str()) ? L"✓ 正常就绪" : L"✗ 缺失") << L"\r\n";
-    ss << L"● 空格键快速预览 (ModelPeekPeek.exe): " << (PathFileExistsW(peekPath.c_str()) ? L"✓ 正常就绪" : L"✗ 缺失") << L"\r\n";
+    ss << L"● 空格键快速预览 (ModelPeekPeek.exe): " << (PathFileExistsW(peekPath.c_str()) ? L"⚪ 已暂停 (暂未启用)" : L"⚪ 未安装/已暂停") << L"\r\n";
     ss << L"● 当前运行权限: " << (IsRunAsAdmin() ? L"管理员模式 (Administrator)" : L"普通用户权限") << L"\r\n";
     ss << L"● 注册表状态: " << (IsFormatRegistered(L".stl") ? L"已激活并接管模型格式" : L"未完全激活") << L"\r\n";
 
@@ -437,7 +437,7 @@ void UpdateQuickLookUI() {
     bool isAutostart = IsQuickLookAutostart();
 
     if (g_hQuickLookStatusText) {
-        std::wstring text = L"QuickLook 守护进程状态: " + std::wstring(isRunning ? L"🟢 正在运行 (按空格键即可预览)" : L"⚪ 未运行 (点击下方按钮启动)");
+        std::wstring text = L"QuickLook 状态: " + std::wstring(isRunning ? L"🟢 正在运行 (实验性)" : L"⚪ 已暂停 (暂未启用，默认不随系统自启)");
         SetWindowTextW(g_hQuickLookStatusText, text.c_str());
     }
     if (g_hChkQuickLookAutostart) {
@@ -450,7 +450,7 @@ void CreateQuickLookPanel(HWND hParent) {
     g_hPanelQuickLook = CreateWindowExW(0, L"ModelPeekPanelClass", L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 
         15, 42, 595, 315, hParent, NULL, GetModuleHandleW(NULL), NULL);
 
-    HWND hTitle = CreateWindowExW(0, L"STATIC", L"空格键快速预览 (Spacebar QuickLook)", 
+    HWND hTitle = CreateWindowExW(0, L"STATIC", L"空格键快速预览 (Spacebar QuickLook) - 暂未启用", 
         WS_CHILD | WS_VISIBLE, 10, 5, 570, 25, g_hPanelQuickLook, NULL, GetModuleHandleW(NULL), NULL);
     SendMessageW(hTitle, WM_SETFONT, (WPARAM)g_hFontTitle, TRUE);
 
@@ -458,7 +458,7 @@ void CreateQuickLookPanel(HWND hParent) {
         WS_CHILD | WS_VISIBLE, 15, 35, 565, 20, g_hPanelQuickLook, NULL, GetModuleHandleW(NULL), NULL);
     SendMessageW(g_hQuickLookStatusText, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-    g_hChkQuickLookAutostart = CreateWindowExW(0, L"BUTTON", L"开机自动启动 QuickLook 守护进程 (推荐开启)",
+    g_hChkQuickLookAutostart = CreateWindowExW(0, L"BUTTON", L"开机自动启动 QuickLook 守护进程 (暂不推荐开启)",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         15, 62, 450, 22, g_hPanelQuickLook, (HMENU)403, GetModuleHandleW(NULL), NULL);
     SendMessageW(g_hChkQuickLookAutostart, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
@@ -520,7 +520,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         TabCtrl_InsertItem(g_hTab, 1, &tie);
         tie.pszText = (LPWSTR)L"⚡ 缓存加速";
         TabCtrl_InsertItem(g_hTab, 2, &tie);
-        tie.pszText = (LPWSTR)L"🚀 空格预览";
+        tie.pszText = (LPWSTR)L"🚀 空格预览 (暂停)";
         TabCtrl_InsertItem(g_hTab, 3, &tie);
 
         CreateFormatsPanel(hWnd);
