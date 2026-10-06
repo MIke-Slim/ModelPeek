@@ -130,6 +130,27 @@ bool ExtractPayloadToDirectory(const std::wstring& targetDir) {
     }
 
     DeleteFileW(tempZip.c_str());
+
+    // Unblock all extracted files from Windows Mark of the Web
+    auto UnblockRecursive = [](auto& self, const std::wstring& dir) -> void {
+        std::wstring s = dir + L"\\*.*";
+        WIN32_FIND_DATAW fd;
+        HANDLE hFind = FindFirstFileW(s.c_str(), &fd);
+        if (hFind == INVALID_HANDLE_VALUE) return;
+        do {
+            if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+            std::wstring fp = dir + L"\\" + fd.cFileName;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                self(self, fp);
+            } else {
+                std::wstring zs = fp + L":Zone.Identifier";
+                DeleteFileW(zs.c_str());
+            }
+        } while (FindNextFileW(hFind, &fd));
+        FindClose(hFind);
+    };
+    UnblockRecursive(UnblockRecursive, targetDir);
+
     return true;
 }
 
@@ -158,7 +179,7 @@ void RegisterUninstallEntry(const std::wstring& targetDir) {
     LPCWSTR subKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ModelPeek";
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, subKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         LPCWSTR name = L"ModelPeek 3D/CAD 资源管理器预览扩展";
-        LPCWSTR ver = L"2.1.1";
+        LPCWSTR ver = L"2.1.2";
         LPCWSTR pub = L"ModelPeek Team";
         std::wstring uninst = targetDir + L"\\uninstall.bat";
         std::wstring icon = targetDir + L"\\ModelPeekSettings.exe,0";

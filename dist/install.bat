@@ -21,6 +21,9 @@ if not exist "%~dp0ModelPeekExtension.dll" (
     exit /b 1
 )
 
+:: Unblock downloaded files
+powershell -NoProfile -Command "Get-ChildItem -Path '%~dp0' -Recurse | Unblock-File" >nul 2>&1
+
 echo [2/3] Registering 64-bit COM Shell Extension...
 taskkill /f /im prevhost.exe >nul 2>&1
 regsvr32.exe /s "%~dp0ModelPeekExtension.dll"

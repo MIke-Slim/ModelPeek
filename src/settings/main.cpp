@@ -10,6 +10,7 @@
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 #include <string>
 #include <vector>
 #include <sstream>
@@ -21,6 +22,8 @@
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "uuid.lib")
 
 // CLSIDs
 static const LPCWSTR CLSID_THUMB_KEY = L"{e357fccd-a995-4576-b01f-234630154e96}";
@@ -243,6 +246,27 @@ void ClearCacheFiles() {
     FindClose(hFind);
 }
 
+void UnblockDirectory(const std::wstring& folderPath, int& unblockedCount) {
+    std::wstring search = folderPath + L"\\*.*";
+    WIN32_FIND_DATAW fd;
+    HANDLE hFind = FindFirstFileW(search.c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return;
+
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+        std::wstring fullPath = folderPath + L"\\" + fd.cFileName;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            UnblockDirectory(fullPath, unblockedCount);
+        } else {
+            std::wstring zoneStream = fullPath + L":Zone.Identifier";
+            if (DeleteFileW(zoneStream.c_str())) {
+                unblockedCount++;
+            }
+        }
+    } while (FindNextFileW(hFind, &fd));
+    FindClose(hFind);
+}
+
 void RestartExplorer() {
     system("taskkill /f /im prevhost.exe >nul 2>&1");
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
@@ -354,7 +378,9 @@ void UpdateCacheUI(HWND hLabel) {
        << GetCacheDirPath() << L"\r\n\r\n"
        << L"● 缓存图像文件数: " << count << L" 个\r\n"
        << L"● 占用磁盘空间: " << std::fixed << std::setprecision(2) << sizeMB << L" MB\r\n\r\n"
-       << L"提示：清空缓存后，Windows Explorer 将在下次浏览 3D 文件夹时自动按需重新生成高清缩略图。";
+       << L"说明与故障排查：\r\n"
+       << L"1. 清空缓存后，Windows 资源管理器将在下次浏览时自动重新生成高清 3D 缩略图。\r\n"
+       << L"2. 若从网络下载或虚拟机共享的模型在 Alt+P 预览时提示【可能对你的计算机有害】，可点击下方【🔓 解除模型网络锁定】按钮，选择模型文件夹一键解除 Windows 安全限制。";
 
     SetWindowTextW(hLabel, ss.str().c_str());
 }
@@ -375,12 +401,16 @@ void CreateCachePanel(HWND hParent) {
     UpdateCacheUI(g_hCacheInfoText);
 
     HWND btnClear = CreateWindowExW(0, L"BUTTON", L"🧹 一键清空缩略图缓存", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        15, 205, 180, 30, g_hPanelCache, (HMENU)301, GetModuleHandleW(NULL), NULL);
+        15, 205, 175, 30, g_hPanelCache, (HMENU)301, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnClear, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
     HWND btnRestartExp = CreateWindowExW(0, L"BUTTON", L"🔄 刷新 Windows 图标缓存", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        210, 205, 190, 30, g_hPanelCache, (HMENU)302, GetModuleHandleW(NULL), NULL);
+        200, 205, 185, 30, g_hPanelCache, (HMENU)302, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnRestartExp, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+
+    HWND btnUnblock = CreateWindowExW(0, L"BUTTON", L"🔓 解除模型网络锁定 (Unblock)", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        395, 205, 185, 30, g_hPanelCache, (HMENU)303, GetModuleHandleW(NULL), NULL);
+    SendMessageW(btnUnblock, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 }
 
 void SwitchTab(int index) {
@@ -486,6 +516,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         } else if (id == 302) { // Restart explorer
             RestartExplorer();
             MessageBoxW(hWnd, L"Windows 图标缓存已通知刷新！", L"提示", MB_OK | MB_ICONINFORMATION);
+        } else if (id == 303) { // Unblock folder
+            IFileDialog *pfd = NULL;
+            if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pfd)))) {
+                DWORD dwOptions = 0;
+                if (SUCCEEDED(pfd->GetOptions(&dwOptions))) {
+                    pfd->SetOptions(dwOptions | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+                }
+                pfd->SetTitle(L"选择需要解除安全锁定的模型文件夹（如下载目录或虚拟机共享文件夹）");
+                if (SUCCEEDED(pfd->Show(hWnd))) {
+                    IShellItem *psi = NULL;
+                    if (SUCCEEDED(pfd->GetResult(&psi))) {
+                        LPWSTR pszPath = NULL;
+                        if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
+                            int count = 0;
+                            UnblockDirectory(pszPath, count);
+                            std::wstringstream msg;
+                            msg << L"已完成网络安全标记扫描与解除！\r\n\r\n"
+                                << L"扫描文件夹: " << pszPath << L"\r\n"
+                                << L"成功解除 " << count << L" 个文件的网络阻止锁定 (Zone.Identifier)。\r\n\r\n"
+                                << L"现在选定该模型文件即可在 Windows 资源管理器中直接预览！";
+                            MessageBoxW(hWnd, msg.str().c_str(), L"解除网络锁定成功", MB_OK | MB_ICONINFORMATION);
+                            CoTaskMemFree(pszPath);
+                        }
+                        psi->Release();
+                    }
+                }
+                pfd->Release();
+            }
         }
         return 0;
     }
@@ -505,6 +563,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+
     INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_TAB_CLASSES | ICC_STANDARD_CLASSES };
     InitCommonControlsEx(&icex);
 
@@ -534,7 +594,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     wc.hIcon = LoadIconW(NULL, IDI_APPLICATION);
     RegisterClassExW(&wc);
 
-    HWND hWnd = CreateWindowExW(0, L"ModelPeekSettingsClass", L"ModelPeek 控制中心 (Settings v2.1.1)",
+    HWND hWnd = CreateWindowExW(0, L"ModelPeekSettingsClass", L"ModelPeek 控制中心 (Settings v2.1.2)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 645, 420,
         NULL, NULL, hInstance, NULL);
@@ -552,5 +612,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     if (g_hFontBold) DeleteObject(g_hFontBold);
     if (g_hFontTitle) DeleteObject(g_hFontTitle);
 
+    CoUninitialize();
     return (int)msg.wParam;
 }
