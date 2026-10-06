@@ -26,7 +26,7 @@ inline void LogTrace(const std::wstring& msg) {
     std::wstring dir = GetLocalLowDir();
     if (!dir.empty()) {
         std::wstring logFile = dir + L"\\modelpeek_shell.log";
-        FILE* f = _wfopen(logFile.c_str(), L"a+, ccs=UTF-8");
+        FILE* f = _wfopen(logFile.c_str(), L"a+,ccs=UTF-8");
         if (f) {
             SYSTEMTIME st;
             GetLocalTime(&st);

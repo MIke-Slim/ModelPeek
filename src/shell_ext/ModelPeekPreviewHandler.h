@@ -57,14 +57,11 @@ private:
     std::wstring m_filePath;
     HWND m_hwndParent;
     RECT m_rcParent;
-    HWND m_hwndPreview;
     IUnknown* m_punkSite;
 
     ICoreWebView2Controller* m_controller;
     ICoreWebView2* m_webview;
 
-    static LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    bool CreateChildWindow();
     bool InitWebView2();
     std::wstring GetViewerHtmlPath();
     std::wstring PrepareModelForPreview(const std::wstring& filePath);
