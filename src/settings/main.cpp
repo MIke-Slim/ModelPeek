@@ -389,8 +389,12 @@ void CreateStatusPanel(HWND hParent) {
     SendMessageW(btnReinstall, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
     HWND btnUninstall = CreateWindowExW(0, L"BUTTON", L"🗑️ 彻底注销扩展组件", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        230, 205, 160, 30, g_hPanelStatus, (HMENU)202, GetModuleHandleW(NULL), NULL);
+        225, 205, 165, 30, g_hPanelStatus, (HMENU)202, GetModuleHandleW(NULL), NULL);
     SendMessageW(btnUninstall, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
+
+    HWND btnDonate = CreateWindowExW(0, L"BUTTON", L"☕ 赞助支持作者 (Sponsor)", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        400, 205, 180, 30, g_hPanelStatus, (HMENU)203, GetModuleHandleW(NULL), NULL);
+    SendMessageW(btnDonate, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 }
 
 void UpdateCacheUI(HWND hLabel) {
@@ -581,6 +585,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             _wsystem(unregCmd.c_str());
             RestartExplorer();
             MessageBoxW(hWnd, L"已彻底注销 ModelPeek COM 扩展组件。", L"提示", MB_OK | MB_ICONINFORMATION);
+        } else if (id == 203) { // Donate / Sponsor
+            ShellExecuteW(NULL, L"open", L"https://buymeacoffee.com/mikeslim", NULL, NULL, SW_SHOWNORMAL);
         } else if (id == 301) { // Clear cache
             ClearCacheFiles();
             UpdateCacheUI(g_hCacheInfoText);

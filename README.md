@@ -3,6 +3,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/MIke-Slim/ModelPeek?color=0078D7&label=Release)](https://github.com/MIke-Slim/ModelPeek/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-blue)](https://github.com/MIke-Slim/ModelPeek)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?logo=buy-me-a-coffee)](https://buymeacoffee.com/mikeslim)
 [![Winget](https://img.shields.io/badge/Winget-MIke--Slim.ModelPeek-brightgreen)](https://github.com/microsoft/winget-pkgs)
 
 **ModelPeek** 是一个专为 Windows 资源管理器打造的轻量、高效、极其稳定的 **3D/CAD 预览与 QuickLook 扩展套件**。
@@ -138,6 +139,20 @@ powershell -ExecutionPolicy Bypass -File scripts\package_release.ps1
 - `sample_models/` 与 `sample_models2/`：18 种格式工业与 3D 测试验证用例集合
 - `tests/`：自动化测试脚本套件
 - `dist/`：打包编译产物发布目录
+
+---
+
+## ☕ 赞助与支持 (Sponsor / Buy Me a Coffee)
+
+如果您觉得 **ModelPeek** 帮助您或您的团队提升了工作效率、改善了 3D/CAD 浏览体验，欢迎请作者喝一杯咖啡！☕  
+您的每一份支持都将成为 ModelPeek 持续迭代、适配更多格式与优化性能的强劲动力！❤️
+
+| 🌍 海外 / 国际赞助 (Buy Me a Coffee) | 🇨🇳 国内扫码赞助 (支付宝) |
+| :---: | :---: |
+| [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate%20$3-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/mikeslim) | 点击下方展开扫码 |
+| [👉 点此访问 Buy Me a Coffee 赞助页面](https://buymeacoffee.com/mikeslim) | <details><summary><b>📱 展开支付宝赞赏码</b></summary><br><img src="assets/donate/alipay.jpg" width="220" alt="Alipay QR Code"><br><i>打开手机支付宝扫一扫</i></details> |
+
+> 感谢每一位支持开源的创作者与同行！✨
 
 ---
 
