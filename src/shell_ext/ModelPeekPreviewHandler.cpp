@@ -164,17 +164,108 @@ STDMETHODIMP ModelPeekPreviewHandler::GetSite(REFIID riid, void **ppvSite) {
     return m_punkSite->QueryInterface(riid, ppvSite);
 }
 
+static HWND FindActivePreviewHost(HWND hTop) {
+    struct SearchContext {
+        HWND hHost;
+    } ctx = { NULL };
+
+    EnumChildWindows(hTop, [](HWND hChild, LPARAM lp) -> BOOL {
+        WCHAR cls[128] = { 0 };
+        GetClassNameW(hChild, cls, 128);
+        if (wcscmp(cls, L"Shell Preview Extension Host") == 0 && IsWindowVisible(hChild)) {
+            RECT rc;
+            GetWindowRect(hChild, &rc);
+            int w = rc.right - rc.left;
+            int h = rc.bottom - rc.top;
+            if (w > 50 && h > 50) {
+                SearchContext* pCtx = reinterpret_cast<SearchContext*>(lp);
+                pCtx->hHost = hChild;
+                return FALSE; // found, stop enumeration
+            }
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&ctx));
+
+    return ctx.hHost;
+}
+
+HWND ModelPeekPreviewHandler::ResolveValidParent(HWND candidateHwnd, IUnknown* pSite, RECT* outRc) {
+    if (candidateHwnd && IsWindow(candidateHwnd)) {
+        if (outRc && (outRc->right - outRc->left <= 0 || outRc->bottom - outRc->top <= 0)) {
+            GetClientRect(candidateHwnd, outRc);
+        }
+        return candidateHwnd;
+    }
+
+    LogTrace(L"ResolveValidParent: Candidate HWND is invalid (" + std::to_wstring((UINT_PTR)candidateHwnd) + L"). Attempting recovery...");
+
+    // 1. Try querying site for IOleWindow
+    if (pSite) {
+        IOleWindow* pOleWnd = nullptr;
+        if (SUCCEEDED(pSite->QueryInterface(IID_IOleWindow, (void**)&pOleWnd)) && pOleWnd) {
+            HWND hSite = NULL;
+            if (SUCCEEDED(pOleWnd->GetWindow(&hSite)) && IsWindow(hSite)) {
+                LogTrace(L"ResolveValidParent: Recovered parent from site IOleWindow: " + std::to_wstring((UINT_PTR)hSite));
+                pOleWnd->Release();
+                if (outRc && (outRc->right - outRc->left <= 0 || outRc->bottom - outRc->top <= 0)) {
+                    GetClientRect(hSite, outRc);
+                }
+                return hSite;
+            }
+            pOleWnd->Release();
+        }
+    }
+
+    // 2. Search foreground window if it is an Explorer window
+    HWND hForeground = GetForegroundWindow();
+    if (hForeground) {
+        HWND hHost = FindActivePreviewHost(hForeground);
+        if (hHost && IsWindow(hHost)) {
+            LogTrace(L"ResolveValidParent: Recovered host from foreground window: " + std::to_wstring((UINT_PTR)hHost));
+            if (outRc) GetClientRect(hHost, outRc);
+            return hHost;
+        }
+    }
+
+    // 3. Search all top-level CabinetWClass windows
+    HWND hFound = NULL;
+    EnumWindows([](HWND hTop, LPARAM lp) -> BOOL {
+        WCHAR cls[128] = { 0 };
+        GetClassNameW(hTop, cls, 128);
+        if (wcscmp(cls, L"CabinetWClass") == 0 && IsWindowVisible(hTop)) {
+            HWND hHost = FindActivePreviewHost(hTop);
+            if (hHost && IsWindow(hHost)) {
+                *reinterpret_cast<HWND*>(lp) = hHost;
+                return FALSE; // found, stop
+            }
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&hFound));
+
+    if (hFound && IsWindow(hFound)) {
+        LogTrace(L"ResolveValidParent: Recovered host from CabinetWClass: " + std::to_wstring((UINT_PTR)hFound));
+        if (outRc) GetClientRect(hFound, outRc);
+        return hFound;
+    }
+
+    LogTrace(L"ResolveValidParent: Could not find valid host window.");
+    return candidateHwnd;
+}
+
 STDMETHODIMP ModelPeekPreviewHandler::SetWindow(HWND hwnd, const RECT *prc) {
-    if (!hwnd || !prc) return E_INVALIDARG;
-    m_hwndParent = hwnd;
+    if (!prc) return E_INVALIDARG;
     m_rcParent = *prc;
+    m_hwndParent = ResolveValidParent(hwnd, m_punkSite, &m_rcParent);
     std::wstringstream ss;
-    ss << L"PreviewHandler::SetWindow: hwnd=" << (UINT_PTR)hwnd 
-       << L" rc={" << prc->left << L"," << prc->top << L"," << prc->right << L"," << prc->bottom << L"}";
+    ss << L"PreviewHandler::SetWindow: input hwnd=" << (UINT_PTR)hwnd 
+       << L" resolved hwnd=" << (UINT_PTR)m_hwndParent
+       << L" rc={" << m_rcParent.left << L"," << m_rcParent.top << L"," << m_rcParent.right << L"," << m_rcParent.bottom << L"}";
     LogTrace(ss.str());
     if (m_hwndPreview) {
-        SetParent(m_hwndPreview, m_hwndParent);
-        SetRect(prc);
+        if (m_hwndParent && IsWindow(m_hwndParent)) {
+            SetParent(m_hwndPreview, m_hwndParent);
+        }
+        SetRect(&m_rcParent);
     }
     return S_OK;
 }
@@ -184,15 +275,21 @@ STDMETHODIMP ModelPeekPreviewHandler::SetRect(const RECT *prc) {
     m_rcParent = *prc;
     int w = m_rcParent.right - m_rcParent.left;
     int h = m_rcParent.bottom - m_rcParent.top;
-    if (w <= 0) w = 200;
-    if (h <= 0) h = 200;
+    if (w <= 0 && m_hwndParent && IsWindow(m_hwndParent)) {
+        RECT clRc = {0};
+        GetClientRect(m_hwndParent, &clRc);
+        w = clRc.right - clRc.left;
+        h = clRc.bottom - clRc.top;
+    }
+    if (w <= 0) w = 300;
+    if (h <= 0) h = 300;
 
     std::wstringstream ss;
     ss << L"PreviewHandler::SetRect: w=" << w << L" h=" << h;
     LogTrace(ss.str());
 
     if (m_hwndPreview) {
-        SetWindowPos(m_hwndPreview, NULL, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(m_hwndPreview, NULL, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
     if (m_controller) {
         RECT bounds = { 0, 0, w, h };
@@ -208,7 +305,9 @@ LRESULT CALLBACK ModelPeekPreviewHandler::WndProc(HWND hwnd, UINT uMsg, WPARAM w
             if (pThis && pThis->m_controller) {
                 RECT rc;
                 GetClientRect(hwnd, &rc);
-                pThis->m_controller->put_Bounds(rc);
+                if (rc.right > 0 && rc.bottom > 0) {
+                    pThis->m_controller->put_Bounds(rc);
+                }
             }
             return 0;
         }
@@ -220,6 +319,14 @@ LRESULT CALLBACK ModelPeekPreviewHandler::WndProc(HWND hwnd, UINT uMsg, WPARAM w
 
 bool ModelPeekPreviewHandler::CreateChildWindow() {
     LogTrace(L"PreviewHandler::CreateChildWindow starting...");
+    if (!m_hwndParent || !IsWindow(m_hwndParent)) {
+        m_hwndParent = ResolveValidParent(m_hwndParent, m_punkSite, &m_rcParent);
+    }
+    if (!m_hwndParent || !IsWindow(m_hwndParent)) {
+        LogTrace(L"CreateChildWindow: m_hwndParent is invalid (" + std::to_wstring((UINT_PTR)m_hwndParent) + L")");
+        return false;
+    }
+
     WNDCLASSEXW wc = { sizeof(wc) };
     wc.cbSize = sizeof(WNDCLASSEXW);
     wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -237,6 +344,12 @@ bool ModelPeekPreviewHandler::CreateChildWindow() {
 
     int w = m_rcParent.right - m_rcParent.left;
     int h = m_rcParent.bottom - m_rcParent.top;
+    if (w <= 0 || h <= 0) {
+        RECT clRc = {0};
+        GetClientRect(m_hwndParent, &clRc);
+        w = clRc.right - clRc.left;
+        h = clRc.bottom - clRc.top;
+    }
     if (w <= 0) w = 300;
     if (h <= 0) h = 300;
 
@@ -256,7 +369,7 @@ bool ModelPeekPreviewHandler::CreateChildWindow() {
 
     if (m_hwndPreview) {
         SetWindowLongPtrW(m_hwndPreview, GWLP_USERDATA, (LONG_PTR)this);
-        LogTrace(L"PreviewHandler::CreateChildWindow created HWND successfully");
+        LogTrace(L"PreviewHandler::CreateChildWindow created HWND successfully: " + std::to_wstring((UINT_PTR)m_hwndPreview));
         return true;
     }
     DWORD err = GetLastError();
@@ -392,6 +505,8 @@ bool ModelPeekPreviewHandler::InitWebView2() {
                 clientRc.right = m_rcParent.right - m_rcParent.left;
                 clientRc.bottom = m_rcParent.bottom - m_rcParent.top;
             }
+            if (clientRc.right <= 0) clientRc.right = 300;
+            if (clientRc.bottom <= 0) clientRc.bottom = 300;
             LogTrace(L"Setting WebView2 bounds: " + std::to_wstring(clientRc.right) + L"x" + std::to_wstring(clientRc.bottom));
             m_controller->put_Bounds(clientRc);
             m_controller->put_IsVisible(TRUE);
@@ -449,13 +564,17 @@ bool ModelPeekPreviewHandler::InitWebView2() {
 
 STDMETHODIMP ModelPeekPreviewHandler::DoPreview() {
     LogTrace(L"PreviewHandler::DoPreview called. m_filePath=" + m_filePath);
-    if (!m_hwndParent) {
-        LogTrace(L"DoPreview: m_hwndParent is NULL");
-        return E_UNEXPECTED;
-    }
     if (m_filePath.empty()) {
         LogTrace(L"DoPreview: m_filePath is EMPTY");
         return E_FAIL;
+    }
+
+    if (!m_hwndParent || !IsWindow(m_hwndParent)) {
+        m_hwndParent = ResolveValidParent(m_hwndParent, m_punkSite, &m_rcParent);
+    }
+    if (!m_hwndParent || !IsWindow(m_hwndParent)) {
+        LogTrace(L"DoPreview: m_hwndParent is invalid (" + std::to_wstring((UINT_PTR)m_hwndParent) + L")");
+        return E_UNEXPECTED;
     }
 
     if (!m_hwndPreview) {
@@ -489,6 +608,8 @@ STDMETHODIMP ModelPeekPreviewHandler::Unload() {
         DestroyWindow(m_hwndPreview);
         m_hwndPreview = NULL;
     }
+    m_hwndParent = NULL;
+    ZeroMemory(&m_rcParent, sizeof(m_rcParent));
     return S_OK;
 }
 

@@ -68,4 +68,5 @@ private:
     bool InitWebView2();
     std::wstring GetViewerHtmlPath();
     std::wstring PrepareModelForPreview(const std::wstring& filePath);
+    HWND ResolveValidParent(HWND candidateHwnd, IUnknown* pSite, RECT* outRc);
 };

@@ -86,6 +86,9 @@ Copy-Item -Recurse -Force "$Root\src\viewer\*" "$Root\dist\viewer"
 Copy-Item -Force "$Root\src\worker\cad_processor.py" "$Root\dist\cad_processor.py"
 Write-Host "  -> Success: dist\viewer and cad_processor.py updated" -ForegroundColor Green
 
+# 6. Re-register ModelPeekExtension.dll
+regsvr32.exe /s "$Root\dist\ModelPeekExtension.dll"
+
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "ModelPeek Build Completed Successfully!" -ForegroundColor Green
 Write-Host "Output Directory: $Root\dist" -ForegroundColor Cyan
