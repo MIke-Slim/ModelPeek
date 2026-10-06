@@ -12,13 +12,16 @@
 
 ---
 
-## 🚀 v2.1.2 重磅更新与纯原生加固
+## 🚀 v2.1.3 重磅更新与全格式零依赖加固
 
-1. **⚡ 零外部依赖·原生 C++ 工业 CAD 解析引擎 (Zero-Dependency CAD)**
-   - 内置高性能原生 C++ STEP (`.step`, `.stp`)、IGES (`.iges`, `.igs`) 与 BREP (`.brep`, `.brp`) 几何解析器；
-   - 彻底摆脱对 1.3GB 庞大 FreeCAD 或外部 Python 环境的依赖，在任何纯净 Windows 10/11 机器与虚拟机中**真正开箱即用**，18 种格式全自动出图与 3D 预览！
+1. **🌟 18 种格式 100% 纯净系统全覆盖 (内置绿色嵌入式 Python 环境)**
+   - 工业 CAD 核心格式（STEP, IGES, BREP, DXF, STL, OBJ, PLY, PCD, GCODE, 3DS）采用**纯原生 C++ 毫秒级直接解析**；
+   - 针对现代网络与切片模型（GLTF, GLB, 3MF, DAE, FBX），内置 11MB 官方绿色嵌入式 Python 运行时，不改系统 PATH、不写注册表，在任何全新纯净虚拟机与离线内网电脑上 **18 种格式 100% 秒出立体 3D 缩略图**！
 
-2. **🩺 Windows 11 多标签页（Tabbed Explorer）死句柄自愈机制**
+2. **🔓 一键解除 Windows 网络安全锁定 (Mark of the Web / Unblock)**
+   - 控制中心（`ModelPeekSettings.exe`）新增【🔓 解除模型网络锁定】功能，并优化安装流程，一键消除从网络下载或虚拟机共享文件夹传来的“文件可能对你的计算机有害”Windows 系统级拦截。
+
+3. **🩺 Windows 11 多标签页（Tabbed Explorer）死句柄自愈机制**
    - 彻底修复 Windows 11 资源管理器在选项卡切换或多开时，`prevhost.exe` 传递失效宿主句柄导致的 `CreateWindowEx err=1400`（无效窗口句柄）及右侧预览窗格空白问题。
    - 内置三级宿主窗口智能重定向与正向尺寸保底（`ResolveValidParent`），确保在任何复杂标签页操作下 100% 稳定加载。
 

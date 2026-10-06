@@ -1,8 +1,8 @@
-# ModelPeek v2.1.2 Automated Test Suite
+# ModelPeek v2.1.3 Automated Test Suite
 $ErrorActionPreference = "Stop"
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "   ModelPeek v2.1.2 Verification Suite   " -ForegroundColor Cyan
+Write-Host "   ModelPeek v2.1.3 Verification Suite   " -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
 $Root = Split-Path -Parent $PSScriptRoot
@@ -30,6 +30,7 @@ Assert-Check "ModelPeekExtension.dll exists" { Test-Path "$Root\dist\ModelPeekEx
 Assert-Check "ModelPeekWorker.exe exists" { Test-Path "$Root\dist\ModelPeekWorker.exe" }
 Assert-Check "ModelPeekSettings.exe exists" { Test-Path "$Root\dist\ModelPeekSettings.exe" }
 Assert-Check "WebView2Loader.dll exists" { Test-Path "$Root\dist\WebView2Loader.dll" }
+Assert-Check "dist/python/python.exe exists" { Test-Path "$Root\dist\python\python.exe" }
 
 Write-Host "`n2. Verifying Viewer Engine & Loaders..." -ForegroundColor Yellow
 Assert-Check "dist/viewer/index.html exists" { Test-Path "$Root\dist\viewer\index.html" }

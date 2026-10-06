@@ -1142,6 +1142,12 @@ std::wstring FindOCCPython() {
     GetModuleFileNameW(NULL, selfPath, MAX_PATH);
     PathRemoveFileSpecW(selfPath);
 
+    std::wstring pEmbedded = std::wstring(selfPath) + L"\\python\\python.exe";
+    if (PathFileExistsW(pEmbedded.c_str())) return pEmbedded;
+
+    std::wstring pSameDir = std::wstring(selfPath) + L"\\python.exe";
+    if (PathFileExistsW(pSameDir.c_str())) return pSameDir;
+
     std::wstring p1 = std::wstring(selfPath) + L"\\occt\\python.exe";
     if (PathFileExistsW(p1.c_str())) return p1;
 

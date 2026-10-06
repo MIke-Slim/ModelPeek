@@ -1,8 +1,8 @@
 # ModelPeek Release Packaging Script
 $ErrorActionPreference = "Stop"
 
-$Version = "v2.1.2"
-$VerNum = "2.1.2"
+$Version = "v2.1.3"
+$VerNum = "2.1.3"
 $Root = Split-Path -Parent $PSScriptRoot
 $Gxx = Join-Path $Root "tools\w64devkit\bin\g++.exe"
 $Windres = Join-Path $Root "tools\w64devkit\bin\windres.exe"
@@ -29,6 +29,9 @@ Copy-Item -Force "$Root\dist\cad_processor.py" $Staging
 Copy-Item -Force "$Root\dist\install.bat" $Staging
 Copy-Item -Force "$Root\dist\uninstall.bat" $Staging
 Copy-Item -Recurse -Force "$Root\dist\viewer" $Staging
+if (Test-Path "$Root\dist\python") {
+    Copy-Item -Recurse -Force "$Root\dist\python" $Staging
+}
 
 $ReadmeContent = @"
 ========================================================
