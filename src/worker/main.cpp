@@ -948,6 +948,62 @@ bool LoadIGES(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB
                     prev = cur;
                 }
             } catch (...) {}
+        } else if (entityType == 126 && parts.size() >= 8) { // Rational B-spline Curve
+            try {
+                int K = std::stoi(parts[1]);
+                int M = std::stoi(parts[2]);
+                int numKnots = K + M + 2;
+                int numWeights = K + 1;
+                size_t cpStart = 7 + numKnots + numWeights;
+                int numPts = K + 1;
+
+                auto parseVal = [](std::string s) -> double {
+                    for (char& c : s) if (c == 'D' || c == 'd') c = 'E';
+                    return std::stod(s);
+                };
+
+                std::vector<Vec3> cps;
+                for (int i = 0; i < numPts; ++i) {
+                    size_t idx = cpStart + i * 3;
+                    if (idx + 2 < parts.size()) {
+                        Vec3 pt = { (float)parseVal(parts[idx]), (float)parseVal(parts[idx + 1]), (float)parseVal(parts[idx + 2]) };
+                        cps.push_back(pt);
+                        updateBBox(pt);
+                    }
+                }
+                for (size_t i = 0; i + 1 < cps.size(); ++i) {
+                    segs.push_back({ cps[i], cps[i + 1] });
+                }
+            } catch (...) {}
+        } else if (entityType == 106 && parts.size() >= 3) { // Copious Data
+            try {
+                int IP = std::stoi(parts[1]);
+                int N = std::stoi(parts[2]);
+                auto parseVal = [](std::string s) -> double {
+                    for (char& c : s) if (c == 'D' || c == 'd') c = 'E';
+                    return std::stod(s);
+                };
+                int stride = (IP == 1 ? 2 : (IP == 2 ? 3 : 6));
+                size_t ptStart = (IP == 1 ? 4 : 3);
+                float zT = (IP == 1 && parts.size() >= 4 ? (float)parseVal(parts[3]) : 0.0f);
+
+                std::vector<Vec3> pts;
+                for (int i = 0; i < N; ++i) {
+                    size_t idx = ptStart + i * stride;
+                    if (IP == 1 && idx + 1 < parts.size()) {
+                        Vec3 pt = { (float)parseVal(parts[idx]), (float)parseVal(parts[idx + 1]), zT };
+                        pts.push_back(pt);
+                        updateBBox(pt);
+                    } else if (idx + 2 < parts.size()) {
+                        Vec3 pt = { (float)parseVal(parts[idx]), (float)parseVal(parts[idx + 1]), (float)parseVal(parts[idx + 2]) };
+                        pts.push_back(pt);
+                        updateBBox(pt);
+                    }
+                }
+                for (size_t i = 0; i + 1 < pts.size(); ++i) {
+                    segs.push_back({ pts[i], pts[i + 1] });
+                }
+            } catch (...) {}
         }
     }
 

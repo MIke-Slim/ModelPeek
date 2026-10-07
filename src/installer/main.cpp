@@ -21,6 +21,7 @@
 #pragma comment(lib, "advapi32.lib")
 
 #define IDR_PAYLOAD_ZIP 101
+#define MODELPEEK_VERSION_STR L"2.1.3"
 
 static HWND g_hPathEdit = NULL;
 static HWND g_hChkShell = NULL;
@@ -179,7 +180,7 @@ void RegisterUninstallEntry(const std::wstring& targetDir) {
     LPCWSTR subKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ModelPeek";
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, subKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         LPCWSTR name = L"ModelPeek 3D/CAD 资源管理器预览扩展";
-        LPCWSTR ver = L"2.1.2";
+        LPCWSTR ver = MODELPEEK_VERSION_STR;
         LPCWSTR pub = L"ModelPeek Team";
         std::wstring uninst = targetDir + L"\\uninstall.bat";
         std::wstring icon = targetDir + L"\\ModelPeekSettings.exe,0";
@@ -204,8 +205,29 @@ void DoInstallation(HWND hWnd) {
     ShowWindow(g_hProgress, SW_SHOW);
     SendMessageW(g_hProgress, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
 
+    SetWindowTextW(g_hStatusLabel, L"正在解锁文件并清理旧版本...");
+    SendMessageW(g_hProgress, PBM_SETPOS, 15, 0);
+
+    // 1. Terminate running host and worker processes to avoid file locks
+    system("taskkill /f /im prevhost.exe >nul 2>&1");
+    system("taskkill /f /im ModelPeekWorker.exe >nul 2>&1");
+    system("taskkill /f /im ModelPeekSettings.exe >nul 2>&1");
+
+    // 2. Unregister previous COM DLL if existing
+    std::wstring oldDll = targetDir + L"\\ModelPeekExtension.dll";
+    if (PathFileExistsW(oldDll.c_str())) {
+        std::wstring unregCmd = L"regsvr32.exe /u /s \"" + oldDll + L"\"";
+        _wsystem(unregCmd.c_str());
+    }
+
+    // 3. Remove obsolete legacy binaries
+    std::wstring oldPeek = targetDir + L"\\ModelPeekPeek.exe";
+    if (PathFileExistsW(oldPeek.c_str())) {
+        DeleteFileW(oldPeek.c_str());
+    }
+
     SetWindowTextW(g_hStatusLabel, L"正在解压核心组件与 WebGL 视口引擎...");
-    SendMessageW(g_hProgress, PBM_SETPOS, 30, 0);
+    SendMessageW(g_hProgress, PBM_SETPOS, 35, 0);
 
     if (!ExtractPayloadToDirectory(targetDir)) {
         MessageBoxW(hWnd, L"解压安装组件失败，请检查目标路径权限或磁盘空间！", L"安装失败", MB_OK | MB_ICONERROR);
@@ -213,18 +235,17 @@ void DoInstallation(HWND hWnd) {
         return;
     }
 
-    SendMessageW(g_hProgress, PBM_SETPOS, 60, 0);
+    SendMessageW(g_hProgress, PBM_SETPOS, 65, 0);
     SetWindowTextW(g_hStatusLabel, L"正在注册 64 位 COM 资源管理器扩展与 3D 格式关联...");
 
     if (SendMessageW(g_hChkShell, BM_GETCHECK, 0, 0) == BST_CHECKED) {
         RegisterShellExtension(targetDir);
     }
 
-    SendMessageW(g_hProgress, PBM_SETPOS, 80, 0);
-    SetWindowTextW(g_hStatusLabel, L"正在创建快捷方式与配置快速预览守护进程...");
+    SendMessageW(g_hProgress, PBM_SETPOS, 85, 0);
+    SetWindowTextW(g_hStatusLabel, L"正在创建快捷方式与配置系统环境...");
 
     std::wstring settingsExe = targetDir + L"\\ModelPeekSettings.exe";
-    // QuickLook feature temporarily disabled per user preference
 
     // Start Menu shortcut
     if (SendMessageW(g_hChkStartMenu, BM_GETCHECK, 0, 0) == BST_CHECKED) {
@@ -251,15 +272,18 @@ void DoInstallation(HWND hWnd) {
     SendMessageW(g_hProgress, PBM_SETPOS, 100, 0);
     SetWindowTextW(g_hStatusLabel, L"安装完成！");
 
+    // Refresh Explorer shell and terminate any stale prevhost
+    system("taskkill /f /im prevhost.exe >nul 2>&1");
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 
     int ret = MessageBoxW(hWnd, 
-        L"🎉 ModelPeek v2.1.1 已成功安装并激活！\r\n\r\n"
+        L"🎉 ModelPeek v2.1.3 已成功安装并激活！\r\n\r\n"
         L"● 18 种 3D/CAD 格式立体缩略图已全面生效\r\n"
-        L"● 支持 Windows 11 多标签页智能自愈与 AutoCAD 2023 专属图纸关联\r\n"
+        L"● 内置轻量绿色 Python 运行时，纯净系统全格式通杀\r\n"
+        L"● 支持 Windows 11 多标签页自愈与三维工程尺寸标注\r\n"
         L"● 双击文件保持原有专业软件关联，绝不破坏现有工作流\r\n\r\n"
         L"是否立即打开 ModelPeek 控制中心进行个性化配置？", 
-        L"安装完成", MB_YESNO | MB_ICONINFORMATION);
+        L"ModelPeek v2.1.3 安装完成", MB_YESNO | MB_ICONINFORMATION);
 
     if (ret == IDYES) {
         ShellExecuteW(NULL, L"open", settingsExe.c_str(), NULL, targetDir.c_str(), SW_SHOWNORMAL);
@@ -272,11 +296,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         // Banner header
-        HWND hBanner = CreateWindowExW(0, L"STATIC", L"ModelPeek 3D/CAD 资源管理器扩展 v2.1.1", 
+        HWND hBanner = CreateWindowExW(0, L"STATIC", L"ModelPeek 3D/CAD 资源管理器扩展 v2.1.3", 
             WS_CHILD | WS_VISIBLE | SS_LEFT, 20, 18, 560, 26, hWnd, NULL, GetModuleHandleW(NULL), NULL);
         SendMessageW(hBanner, WM_SETFONT, (WPARAM)g_hFontHeader, TRUE);
 
-        HWND hSubBanner = CreateWindowExW(0, L"STATIC", L"让 Windows 文件夹秒变专业级工业 3D 工作台，18 种格式极速预览与空格悬浮查看", 
+        HWND hSubBanner = CreateWindowExW(0, L"STATIC", L"让 Windows 文件夹秒变专业级工业 3D 工作台，18 种格式极速预览与工程尺寸标注", 
             WS_CHILD | WS_VISIBLE | SS_LEFT, 20, 48, 560, 20, hWnd, NULL, GetModuleHandleW(NULL), NULL);
         SendMessageW(hSubBanner, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 

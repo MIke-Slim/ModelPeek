@@ -89,7 +89,7 @@ Assert-Check "Native STEP -> STL Conversion" { $convOk }
 if (Test-Path $testOutStl) { Remove-Item -Force $testOutStl }
 
 Write-Host "`n5. Verifying Winget Manifests & Community Standards..." -ForegroundColor Yellow
-$WingetDir = "$Root\manifests\m\MIke-Slim\ModelPeek\2.1.0"
+$WingetDir = "$Root\manifests\m\MIke-Slim\ModelPeek\2.1.3"
 Assert-Check "Winget version manifest exists" { Test-Path "$WingetDir\MIke-Slim.ModelPeek.yaml" }
 Assert-Check "Winget installer manifest exists" { Test-Path "$WingetDir\MIke-Slim.ModelPeek.installer.yaml" }
 Assert-Check "Winget en-US locale exists" { Test-Path "$WingetDir\MIke-Slim.ModelPeek.locale.en-US.yaml" }

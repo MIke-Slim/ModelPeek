@@ -9,6 +9,7 @@ tools/*
 *.tmp
 *.tmp.*
 *.zip
+!dist/python/*.zip
 *.old
 __pycache__/
 *.pyc

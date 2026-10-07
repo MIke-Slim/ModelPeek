@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
+
+PackageIdentifier: MIke-Slim.ModelPeek
+PackageVersion: 2.1.3
+PackageLocale: zh-CN
+Publisher: MIke-Slim
+PublisherUrl: https://github.com/MIke-Slim
+PublisherSupportUrl: https://github.com/MIke-Slim/ModelPeek/issues
+PackageName: ModelPeek
+PackageUrl: https://github.com/MIke-Slim/ModelPeek
+License: MIT
+LicenseUrl: https://github.com/MIke-Slim/ModelPeek/blob/main/LICENSE
+ShortDescription: 高性能、轻量级 Windows 资源管理器 3D/CAD 预览插件，支持 18 种工业格式与三维工程尺寸标注。
+Description: ModelPeek 是一款专为工程设计师与 3D 创作者打造的 Windows 资源管理器原生扩展插件。支持在文件夹中秒级生成立体 3D 缩略图、预览窗格 (Alt+P) 交互式查看，内置三维工程尺寸标注、零部件装配树、动态剖切面及四大视口主题。
+Moniker: modelpeek
+Tags:
+  - 3d
+  - cad
+  - 预览
+  - 缩略图
+  - step
+  - stl
+  - obj
+  - dxf
+  - pcd
+ReleaseNotesUrl: https://github.com/MIke-Slim/ModelPeek/releases/tag/v2.1.3
+ManifestType: locale
+ManifestVersion: 1.6.0
