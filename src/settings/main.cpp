@@ -499,12 +499,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         } else if (id == 202) { // Unregister
             std::wstring unregCmd = L"regsvr32.exe /u /s \"" + GetAppDir() + L"\\ModelPeekExtension.dll\"";
             _wsystem(unregCmd.c_str());
-            HKEY hRunKey;
-            if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hRunKey) == ERROR_SUCCESS) {
-                RegDeleteValueW(hRunKey, L"ModelPeekPeek");
-                RegCloseKey(hRunKey);
-            }
-            system("taskkill /f /im ModelPeekPeek.exe >nul 2>&1");
             RestartExplorer();
             MessageBoxW(hWnd, L"已彻底注销 ModelPeek COM 扩展组件。", L"提示", MB_OK | MB_ICONINFORMATION);
         } else if (id == 203) { // Donate / Sponsor

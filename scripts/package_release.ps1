@@ -24,6 +24,7 @@ New-Item -ItemType Directory -Path $Staging | Out-Null
 Copy-Item -Force "$Root\dist\ModelPeekExtension.dll" $Staging
 Copy-Item -Force "$Root\dist\ModelPeekWorker.exe" $Staging
 Copy-Item -Force "$Root\dist\ModelPeekSettings.exe" $Staging
+Copy-Item -Force "$Root\dist\ModelPeekUninstall.exe" $Staging
 Copy-Item -Force "$Root\dist\WebView2Loader.dll" $Staging
 Copy-Item -Force "$Root\dist\cad_processor.py" $Staging
 Copy-Item -Force "$Root\dist\install.bat" $Staging

@@ -229,7 +229,8 @@ void RegisterUninstallEntry(const std::wstring& targetDir) {
         LPCWSTR name = L"ModelPeek 3D/CAD 资源管理器预览扩展";
         LPCWSTR ver = MODELPEEK_VERSION_STR;
         LPCWSTR pub = L"ModelPeek Team";
-        std::wstring uninst = targetDir + L"\\uninstall.bat";
+        std::wstring uninst = L"\"" + targetDir + L"\\ModelPeekUninstall.exe\"";
+        std::wstring quietUninst = L"\"" + targetDir + L"\\ModelPeekUninstall.exe\" /S";
         std::wstring icon = targetDir + L"\\ModelPeekSettings.exe,0";
 
         RegSetValueExW(hKey, L"DisplayName", 0, REG_SZ, (const BYTE*)name, (DWORD)((wcslen(name)+1)*sizeof(WCHAR)));
@@ -237,6 +238,7 @@ void RegisterUninstallEntry(const std::wstring& targetDir) {
         RegSetValueExW(hKey, L"Publisher", 0, REG_SZ, (const BYTE*)pub, (DWORD)((wcslen(pub)+1)*sizeof(WCHAR)));
         RegSetValueExW(hKey, L"InstallLocation", 0, REG_SZ, (const BYTE*)targetDir.c_str(), (DWORD)((targetDir.length()+1)*sizeof(WCHAR)));
         RegSetValueExW(hKey, L"UninstallString", 0, REG_SZ, (const BYTE*)uninst.c_str(), (DWORD)((uninst.length()+1)*sizeof(WCHAR)));
+        RegSetValueExW(hKey, L"QuietUninstallString", 0, REG_SZ, (const BYTE*)quietUninst.c_str(), (DWORD)((quietUninst.length()+1)*sizeof(WCHAR)));
         RegSetValueExW(hKey, L"DisplayIcon", 0, REG_SZ, (const BYTE*)icon.c_str(), (DWORD)((icon.length()+1)*sizeof(WCHAR)));
         RegCloseKey(hKey);
     }
