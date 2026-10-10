@@ -21,8 +21,8 @@ if not exist "%~dp0ModelPeekExtension.dll" (
     exit /b 1
 )
 
-:: Unblock downloaded files
-powershell -NoProfile -Command "Get-ChildItem -Path '%~dp0' -Recurse | Unblock-File" >nul 2>&1
+:: Unblock downloaded files and model locations (Solution 3)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path '%~dp0', '%USERPROFILE%\Desktop' -Recurse -Depth 3 -ErrorAction SilentlyContinue | Unblock-File" >nul 2>&1
 
 echo [2/3] Registering 64-bit COM Shell Extension...
 taskkill /f /im prevhost.exe >nul 2>&1
@@ -49,9 +49,8 @@ echo.
 echo How to use:
 echo   1. Open any folder containing 3D/CAD files to view 3D thumbnails.
 echo   2. Press Alt + P in Explorer to toggle the 3D Preview Pane.
-echo   3. Press Space on any 3D/CAD file for instant Spacebar QuickLook 3D preview!
-echo   4. Double-clicking files still opens your default CAD software.
-echo   5. Run ModelPeekSettings.exe anytime to configure formats or clean cache.
+echo   3. Double-clicking files still opens your default CAD software.
+echo   4. Run ModelPeekSettings.exe anytime to configure formats or clean cache.
 echo ========================================================
 echo.
 pause

@@ -33,6 +33,7 @@ static HWND g_hStatusLabel = NULL;
 static HFONT g_hFontNormal = NULL;
 static HFONT g_hFontBold = NULL;
 static HFONT g_hFontHeader = NULL;
+static bool g_bSilent = false;
 
 BOOL IsRunAsAdmin() {
     BOOL isAdmin = FALSE;
@@ -45,17 +46,80 @@ BOOL IsRunAsAdmin() {
     return isAdmin;
 }
 
-void ElevateNow(HWND hWnd) {
+void ElevateNow(HWND hWnd, LPCWSTR lpParameters = NULL) {
     WCHAR szPath[MAX_PATH];
     if (GetModuleFileNameW(NULL, szPath, MAX_PATH)) {
         SHELLEXECUTEINFOW sei = { sizeof(sei) };
         sei.lpVerb = L"runas";
         sei.lpFile = szPath;
+        sei.lpParameters = lpParameters;
         sei.hwnd = hWnd;
-        sei.nShow = SW_NORMAL;
+        sei.nShow = g_bSilent ? SW_HIDE : SW_NORMAL;
         if (ShellExecuteExW(&sei)) {
             ExitProcess(0);
         }
+    }
+}
+
+static void UnblockDirectoryRecursive(const std::wstring& dir, int maxDepth = 4, int currentDepth = 0) {
+    if (currentDepth > maxDepth || dir.empty()) return;
+    std::wstring s = dir + L"\\*.*";
+    WIN32_FIND_DATAW fd;
+    HANDLE hFind = FindFirstFileW(s.c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return;
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+        std::wstring fp = dir + L"\\" + fd.cFileName;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            if (_wcsicmp(fd.cFileName, L"AppData") == 0 || 
+                _wcsicmp(fd.cFileName, L"$Recycle.Bin") == 0 ||
+                _wcsicmp(fd.cFileName, L"Windows") == 0 ||
+                _wcsicmp(fd.cFileName, L".git") == 0) {
+                continue;
+            }
+            UnblockDirectoryRecursive(fp, maxDepth, currentDepth + 1);
+        } else {
+            std::wstring zs = fp + L":Zone.Identifier";
+            DeleteFileW(zs.c_str());
+        }
+    } while (FindNextFileW(hFind, &fd));
+    FindClose(hFind);
+}
+
+static void UnblockCommonModelLocations(const std::wstring& targetDir) {
+    // 1. Unblock installation target directory
+    UnblockDirectoryRecursive(targetDir, 5, 0);
+
+    // 2. Unblock installer's own directory (where Setup.exe was downloaded/launched)
+    WCHAR exePath[MAX_PATH] = {0};
+    if (GetModuleFileNameW(NULL, exePath, MAX_PATH)) {
+        PathRemoveFileSpecW(exePath);
+        if (wcslen(exePath) > 0) {
+            UnblockDirectoryRecursive(exePath, 4, 0);
+        }
+    }
+
+    // 3. Unblock User Desktop and Common Desktop (where sample_models and test files reside)
+    WCHAR desktopPath[MAX_PATH] = {0};
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, desktopPath))) {
+        UnblockDirectoryRecursive(desktopPath, 3, 0);
+    }
+    WCHAR commonDesktopPath[MAX_PATH] = {0};
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_DESKTOPDIRECTORY, NULL, 0, commonDesktopPath))) {
+        UnblockDirectoryRecursive(commonDesktopPath, 3, 0);
+    }
+
+    // 4. Unblock User Downloads
+    WCHAR userProfile[MAX_PATH] = {0};
+    if (GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH)) {
+        std::wstring downloads = std::wstring(userProfile) + L"\\Downloads";
+        UnblockDirectoryRecursive(downloads, 3, 0);
+    }
+
+    // 5. Unblock User Documents
+    WCHAR personalPath[MAX_PATH] = {0};
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, personalPath))) {
+        UnblockDirectoryRecursive(personalPath, 3, 0);
     }
 }
 
@@ -133,24 +197,7 @@ bool ExtractPayloadToDirectory(const std::wstring& targetDir) {
     DeleteFileW(tempZip.c_str());
 
     // Unblock all extracted files from Windows Mark of the Web
-    auto UnblockRecursive = [](auto& self, const std::wstring& dir) -> void {
-        std::wstring s = dir + L"\\*.*";
-        WIN32_FIND_DATAW fd;
-        HANDLE hFind = FindFirstFileW(s.c_str(), &fd);
-        if (hFind == INVALID_HANDLE_VALUE) return;
-        do {
-            if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
-            std::wstring fp = dir + L"\\" + fd.cFileName;
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                self(self, fp);
-            } else {
-                std::wstring zs = fp + L":Zone.Identifier";
-                DeleteFileW(zs.c_str());
-            }
-        } while (FindNextFileW(hFind, &fd));
-        FindClose(hFind);
-    };
-    UnblockRecursive(UnblockRecursive, targetDir);
+    UnblockDirectoryRecursive(targetDir, 5, 0);
 
     return true;
 }
@@ -196,17 +243,21 @@ void RegisterUninstallEntry(const std::wstring& targetDir) {
 }
 
 void DoInstallation(HWND hWnd) {
-    WCHAR pathBuf[MAX_PATH] = {0};
-    GetWindowTextW(g_hPathEdit, pathBuf, MAX_PATH);
-    std::wstring targetDir = pathBuf;
+    std::wstring targetDir;
+    if (g_hPathEdit) {
+        WCHAR pathBuf[MAX_PATH] = {0};
+        GetWindowTextW(g_hPathEdit, pathBuf, MAX_PATH);
+        targetDir = pathBuf;
+    }
     if (targetDir.empty()) targetDir = GetDefaultInstallDir();
 
-    EnableWindow(g_hBtnInstall, FALSE);
-    ShowWindow(g_hProgress, SW_SHOW);
-    SendMessageW(g_hProgress, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
-
-    SetWindowTextW(g_hStatusLabel, L"正在解锁文件并清理旧版本...");
-    SendMessageW(g_hProgress, PBM_SETPOS, 15, 0);
+    if (g_hBtnInstall) EnableWindow(g_hBtnInstall, FALSE);
+    if (g_hProgress) {
+        ShowWindow(g_hProgress, SW_SHOW);
+        SendMessageW(g_hProgress, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
+        SendMessageW(g_hProgress, PBM_SETPOS, 15, 0);
+    }
+    if (g_hStatusLabel) SetWindowTextW(g_hStatusLabel, L"正在解锁文件并清理旧版本...");
 
     // 1. Terminate running host and worker processes to avoid file locks
     system("taskkill /f /im prevhost.exe >nul 2>&1");
@@ -226,70 +277,74 @@ void DoInstallation(HWND hWnd) {
         DeleteFileW(oldPeek.c_str());
     }
 
-    SetWindowTextW(g_hStatusLabel, L"正在解压核心组件与 WebGL 视口引擎...");
-    SendMessageW(g_hProgress, PBM_SETPOS, 35, 0);
+    if (g_hStatusLabel) SetWindowTextW(g_hStatusLabel, L"正在解压核心组件与 WebGL 视口引擎...");
+    if (g_hProgress) SendMessageW(g_hProgress, PBM_SETPOS, 35, 0);
 
     if (!ExtractPayloadToDirectory(targetDir)) {
-        MessageBoxW(hWnd, L"解压安装组件失败，请检查目标路径权限或磁盘空间！", L"安装失败", MB_OK | MB_ICONERROR);
-        EnableWindow(g_hBtnInstall, TRUE);
+        if (!g_bSilent && hWnd) {
+            MessageBoxW(hWnd, L"解压安装组件失败，请检查目标路径权限或磁盘空间！", L"安装失败", MB_OK | MB_ICONERROR);
+            if (g_hBtnInstall) EnableWindow(g_hBtnInstall, TRUE);
+        }
         return;
     }
 
-    SendMessageW(g_hProgress, PBM_SETPOS, 65, 0);
-    SetWindowTextW(g_hStatusLabel, L"正在注册 64 位 COM 资源管理器扩展与 3D 格式关联...");
+    if (g_hProgress) SendMessageW(g_hProgress, PBM_SETPOS, 60, 0);
+    if (g_hStatusLabel) SetWindowTextW(g_hStatusLabel, L"正在注册 64 位 COM 资源管理器扩展与 3D 格式关联...");
 
-    if (SendMessageW(g_hChkShell, BM_GETCHECK, 0, 0) == BST_CHECKED) {
-        RegisterShellExtension(targetDir);
-    }
+    // Register Shell Extension
+    RegisterShellExtension(targetDir);
 
-    SendMessageW(g_hProgress, PBM_SETPOS, 85, 0);
-    SetWindowTextW(g_hStatusLabel, L"正在创建快捷方式与配置系统环境...");
+    if (g_hProgress) SendMessageW(g_hProgress, PBM_SETPOS, 75, 0);
+    if (g_hStatusLabel) SetWindowTextW(g_hStatusLabel, L"正在创建快捷方式与配置系统环境...");
 
     std::wstring settingsExe = targetDir + L"\\ModelPeekSettings.exe";
 
     // Start Menu shortcut
-    if (SendMessageW(g_hChkStartMenu, BM_GETCHECK, 0, 0) == BST_CHECKED) {
-        WCHAR startMenuDir[MAX_PATH] = {0};
-        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, startMenuDir))) {
-            std::wstring mpDir = std::wstring(startMenuDir) + L"\\ModelPeek";
-            CreateDirectoryW(mpDir.c_str(), NULL);
-            std::wstring lnk = mpDir + L"\\ModelPeek 控制中心.lnk";
-            CreateShortcut(settingsExe.c_str(), lnk.c_str(), L"ModelPeek 3D/CAD 预览设置中心", settingsExe.c_str());
-        }
+    WCHAR startMenuDir[MAX_PATH] = {0};
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_PROGRAMS, NULL, 0, startMenuDir))) {
+        std::wstring mpDir = std::wstring(startMenuDir) + L"\\ModelPeek";
+        CreateDirectoryW(mpDir.c_str(), NULL);
+        std::wstring lnk = mpDir + L"\\ModelPeek 控制中心.lnk";
+        CreateShortcut(settingsExe.c_str(), lnk.c_str(), L"ModelPeek 3D/CAD 预览设置中心", settingsExe.c_str());
     }
 
     // Desktop shortcut
-    if (SendMessageW(g_hChkDesktop, BM_GETCHECK, 0, 0) == BST_CHECKED) {
-        WCHAR desktopDir[MAX_PATH] = {0};
-        if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_DESKTOPDIRECTORY, NULL, 0, desktopDir))) {
-            std::wstring lnk = std::wstring(desktopDir) + L"\\ModelPeek 控制中心.lnk";
-            CreateShortcut(settingsExe.c_str(), lnk.c_str(), L"ModelPeek 3D/CAD 预览设置中心", settingsExe.c_str());
-        }
+    WCHAR desktopDir[MAX_PATH] = {0};
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_COMMON_DESKTOPDIRECTORY, NULL, 0, desktopDir))) {
+        std::wstring lnk = std::wstring(desktopDir) + L"\\ModelPeek 控制中心.lnk";
+        CreateShortcut(settingsExe.c_str(), lnk.c_str(), L"ModelPeek 3D/CAD 预览设置中心", settingsExe.c_str());
     }
 
     RegisterUninstallEntry(targetDir);
 
-    SendMessageW(g_hProgress, PBM_SETPOS, 100, 0);
-    SetWindowTextW(g_hStatusLabel, L"安装完成！");
+    // 方案三：自动消除自身、自带模型库与常用目录的网络阻止标记 (Mark of the Web)
+    if (g_hProgress) SendMessageW(g_hProgress, PBM_SETPOS, 90, 0);
+    if (g_hStatusLabel) SetWindowTextW(g_hStatusLabel, L"正在批量解除模型网络安全锁定 (Mark of the Web)...");
+    UnblockCommonModelLocations(targetDir);
+
+    if (g_hProgress) SendMessageW(g_hProgress, PBM_SETPOS, 100, 0);
+    if (g_hStatusLabel) SetWindowTextW(g_hStatusLabel, L"安装完成！");
 
     // Refresh Explorer shell and terminate any stale prevhost
     system("taskkill /f /im prevhost.exe >nul 2>&1");
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
 
-    int ret = MessageBoxW(hWnd, 
-        L"🎉 ModelPeek v2.1.3 已成功安装并激活！\r\n\r\n"
-        L"● 18 种 3D/CAD 格式立体缩略图已全面生效\r\n"
-        L"● 内置轻量绿色 Python 运行时，纯净系统全格式通杀\r\n"
-        L"● 支持 Windows 11 多标签页自愈与三维工程尺寸标注\r\n"
-        L"● 双击文件保持原有专业软件关联，绝不破坏现有工作流\r\n\r\n"
-        L"是否立即打开 ModelPeek 控制中心进行个性化配置？", 
-        L"ModelPeek v2.1.3 安装完成", MB_YESNO | MB_ICONINFORMATION);
+    if (!g_bSilent && hWnd) {
+        int ret = MessageBoxW(hWnd, 
+            L"🎉 ModelPeek v2.1.3 已成功安装并激活！\r\n\r\n"
+            L"● 18 种 3D/CAD 格式立体缩略图已全面生效\r\n"
+            L"● 已自动解除模型文件的网络安全锁定 (Mark of the Web 自愈)\r\n"
+            L"● 内置轻量绿色 Python 运行时，纯净系统全格式通杀\r\n"
+            L"● 支持 Windows 11 多标签页自愈与三维工程尺寸标注\r\n"
+            L"● 双击文件保持原有专业软件关联，绝不破坏现有工作流\r\n\r\n"
+            L"是否立即打开 ModelPeek 控制中心进行个性化配置？", 
+            L"ModelPeek v2.1.3 安装完成", MB_YESNO | MB_ICONINFORMATION);
 
-    if (ret == IDYES) {
-        ShellExecuteW(NULL, L"open", settingsExe.c_str(), NULL, targetDir.c_str(), SW_SHOWNORMAL);
+        if (ret == IDYES) {
+            ShellExecuteW(NULL, L"open", settingsExe.c_str(), NULL, targetDir.c_str(), SW_SHOWNORMAL);
+        }
+        PostQuitMessage(0);
     }
-
-    PostQuitMessage(0);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -342,7 +397,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hStatusLabel, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
 
         // Install button
-        g_hBtnInstall = CreateWindowExW(0, L"BUTTON", L"🚀 立即安装 ModelPeek v2.0", 
+        g_hBtnInstall = CreateWindowExW(0, L"BUTTON", L"🚀 立即安装 ModelPeek v2.1.3", 
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 180, 295, 230, 38, hWnd, (HMENU)1000, GetModuleHandleW(NULL), NULL);
         SendMessageW(g_hBtnInstall, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
         return 0;
@@ -393,6 +448,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     CoInitialize(NULL);
+
+    LPWSTR cmdLine = GetCommandLineW();
+    if (cmdLine) {
+        std::wstring cmd(cmdLine);
+        for (auto& c : cmd) c = towlower(c);
+        if (cmd.find(L"/s") != std::wstring::npos || cmd.find(L"-s") != std::wstring::npos ||
+            cmd.find(L"/silent") != std::wstring::npos || cmd.find(L"-silent") != std::wstring::npos) {
+            g_bSilent = true;
+        }
+    }
+
+    if (g_bSilent) {
+        if (!IsRunAsAdmin()) {
+            ElevateNow(NULL, L"/S");
+            return 0;
+        }
+        DoInstallation(NULL);
+        CoUninitialize();
+        return 0;
+    }
+
     INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES };
     InitCommonControlsEx(&icex);
 
@@ -412,7 +488,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     wc.hIcon = LoadIconW(NULL, IDI_APPLICATION);
     RegisterClassExW(&wc);
 
-    HWND hWnd = CreateWindowExW(0, L"ModelPeekInstallerClass", L"ModelPeek 3D/CAD 预览插件 v2.0 安装程序",
+    HWND hWnd = CreateWindowExW(0, L"ModelPeekInstallerClass", L"ModelPeek 3D/CAD 预览插件 v2.1.3 安装程序",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 615, 390,
         NULL, NULL, hInstance, NULL);
