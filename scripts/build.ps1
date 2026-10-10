@@ -75,7 +75,7 @@ Write-Host "[4/5] Compiling ModelPeekUninstall.exe..." -ForegroundColor Yellow
 & $Gxx -O2 -march=x86-64 -mwindows -municode -std=c++20 `
     "$Root\src\installer\uninstaller.cpp" `
     -o "$Root\dist\ModelPeekUninstall.exe" `
-    -lshlwapi -lshell32 -ladvapi32 -lole32 -static-libgcc -static-libstdc++
+    -lcomctl32 -lshlwapi -lshell32 -ladvapi32 -lole32 -static-libgcc -static-libstdc++
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to build ModelPeekUninstall.exe"
