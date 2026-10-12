@@ -89,8 +89,8 @@
 进入 [Releases 页面](https://github.com/MIke-Slim/ModelPeek/releases) 下载最新发行版：
 
 ### 方式一：独立安装向导（推荐）
-1. 下载 **`ModelPeek_v2.1.1_Setup.exe`**；
-2. 双击运行安装向导，按提示点击【下一步】完成安装；
+1. 下载 **`ModelPeek_v2.1.3_Setup.exe`**；
+2. 双击运行安装向导，按提示点击【立即安装】完成安装；
 3. 安装程序会自动完成 COM 注册、文件类型关联并在桌面和开始菜单创建快捷方式。
 
 ### 方式二：Windows 包管理器 (Winget)
@@ -99,10 +99,12 @@ winget install MIke-Slim.ModelPeek
 ```
 
 ### 方式三：免安装便携绿色版
-1. 下载 **`ModelPeek_v2.1.1_Portable_x64.zip`**；
-2. 解压到您希望存放的任意目录（如 `C:\Program Files\ModelPeek`）；
+1. 下载 **`ModelPeek_v2.1.3_Portable_x64.zip`**；
+2. 解压到您希望存放的任意目录（如 `D:\Tools\ModelPeek`）；
 3. 右键点击 `install.bat`，选择 **【以管理员身份运行】** 即可完成激活；
 4. 若需卸载，右键管理员运行 `uninstall.bat` 即可干净清除，无残留。
+
+> 📖 **完整使用教程**：请参阅仓库内配套的 [《ModelPeek 下载与使用说明书》](ModelPeek_使用说明书.md)。
 
 ---
 
