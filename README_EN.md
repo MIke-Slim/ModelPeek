@@ -27,9 +27,9 @@ No need to launch heavy and slow industrial CAD software. ModelPeek lets you ins
 Visit the [GitHub Releases page](https://github.com/MIke-Slim/ModelPeek/releases) or the [Official Download Page](https://modelpeek.mythickoala2.chatgpt.site) for the latest release:
 
 ### Option 1: Standalone Installer (Recommended)
-1. Download **`ModelPeek_v2.1.3_Setup.exe`**;
+1. Download **`ModelPeek_v2.2.0_Setup.exe`**;
 2. Double-click the installer and click **[Install Now]**;
-3. The installer automatically registers COM shell extensions, associates all 18 formats, unblocks network files (MOTW), and creates shortcuts in the Start Menu and Desktop.
+3. The installer automatically registers COM shell extensions, associates all 24 formats, unblocks network files (MOTW), and creates shortcuts in the Start Menu and Desktop.
 
 ### Option 2: Windows Package Manager (Winget)
 Run in Windows Terminal or PowerShell:
@@ -38,7 +38,7 @@ winget install MIke-Slim.ModelPeek
 ```
 
 ### Option 3: Portable Green Edition (No-Install)
-1. Download **`ModelPeek_v2.1.3_Portable_x64.zip`**;
+1. Download **`ModelPeek_v2.2.0_Portable_x64.zip`**;
 2. Extract to any directory of your choice (e.g., `D:\Tools\ModelPeek`);
 3. Right-click `install.bat` and select **[Run as administrator]** to activate;
 4. To uninstall, run `uninstall.bat` as administrator to cleanly remove all registry entries.
@@ -77,7 +77,7 @@ Once installed, open any directory containing 3D/CAD files (e.g., STEP, STL, OBJ
 
 ### 5. Control Center (`ModelPeekSettings.exe`)
 Double-click **ModelPeek Control Center** on your desktop:
-- **Format Toggles**: Enable or disable thumbnails and preview handlers for any of the 18 supported formats individually;
+- **Format Toggles**: Enable or disable thumbnails and preview handlers for any of the 24 supported formats individually;
 - **🔓 Unblock Network Models**: One-click removal of Windows Mark-of-the-Web (MOTW) security flags on downloaded models to avoid warning prompts;
 - **🧹 Clear Thumbnail Cache**: Instantly clear and refresh Windows thumbnail cache to force re-rendering.
 
@@ -85,15 +85,37 @@ Double-click **ModelPeek Control Center** on your desktop:
 
 ---
 
-## 📁 Supported Formats (All 18 Industrial & Standard Formats)
+## 📁 Supported Formats (All 24 Industrial & Standard Formats)
 
 | Category | Formats | Technical Highlights |
 | :--- | :--- | :--- |
-| **Industrial CAD** | `.step`, `.stp`, `.iges`, `.igs`, `.brep`, `.brp`, `.dxf` | Powered by OpenCASCADE B-Rep kernel and native AutoCAD vector parser; supports adaptive rendering of solid faces and topological curves |
+| **Industrial CAD & Assemblies** | `.step`, `.stp`, `.iges`, `.igs`, `.brep`, `.brp`, `.dxf`, `.sldprt`, `.ipt` | Powered by OpenCASCADE B-Rep kernel and native AutoCAD vector parser; native Shell extraction with 3D panoramic cards for SolidWorks (`.sldprt`) & Inventor (`.ipt`) |
 | **Standard 3D Meshes** | `.stl`, `.obj`, `.3mf`, `.glb`, `.gltf`, `.fbx` | Supports ASCII/Binary STL, PBR textures/materials, multi-part assembly trees, and FBX NURBS curves |
-| **Point Clouds & Scanning** | `.ply`, `.pcd` | Supports Stanford PLY true vertex colors and LiDAR/PCL point cloud particle rendering |
+| **Point Clouds & Scanning** | `.ply`, `.pcd`, `.las` | Supports Stanford PLY true vertex colors, LiDAR LAS point clouds (pure native binary parser), and PCL particle rendering |
+| **CAE & Engineering Simulation** | `.inp`, `.vtu` | Zero-dependency native parsers for Abaqus/NASTRAN (`.inp`) and VTK Unstructured Grid (`.vtu`) with automatic boundary skin extraction |
+| **BIM & Architecture** | `.rvt` | Autodesk Revit high-resolution native physical render snapshots with interactive 3D preview cards |
 | **CNC & Slicer Toolpaths** | `.gcode` | Layer-by-layer 3D spatial visualization of extrusion and travel paths |
 | **Multimedia & Legacy 3D** | `.dae` (Collada), `.3ds` (3D Studio) | Seamless preview for classic 3D interchange assets |
+
+---
+
+## 🚀 What's New in v2.2.0: Major Expansion to CAD, CAE, BIM & LiDAR
+
+1. **🌟 Expanded to 24 Mainstream Formats (6 New Heavyweight Formats)**
+   - **LiDAR Survey Point Clouds**: Added `.las` (ASPRS binary);
+   - **CAE Simulation & FEA Grids**: Added `.inp` (Abaqus / NASTRAN) and `.vtu` (VTK Unstructured Grid);
+   - **Commercial Industrial CAD**: Added `.sldprt` (SolidWorks) and `.ipt` (Autodesk Inventor);
+   - **BIM Architectural Models**: Added `.rvt` (Autodesk Revit).
+
+2. **⚡ Pure Native C++ Zero-Dependency CAE & Point Cloud Parsers**
+   - **LiDAR Point Cloud (`.las`)**: Fast native binary parsing supporting LAS 1.1~1.4, generating dense particle clouds for the offline software rasterizer and interactive 3D viewport.
+   - **Simulation Meshes (`.inp`, `.vtu`)**: Built-in support for hex (C3D8), tet (C3D4), and shell (S4/S3) element topologies; innovative shared-face cancellation algorithm extracts watertight boundary skins in milliseconds.
+
+3. **🖼️ Commercial CAD & BIM Native Render Extraction (`.sldprt`, `.ipt`, `.rvt`)**
+   - Deep integration with Windows Shell COM `IShellItemImageFactory` instantly extracts high-fidelity native thumbnails with zero delay, presenting interactive 3D panoramic cards in the preview pane.
+
+4. **🧪 Automated Test Suite Expanded to 38 Test Cases**
+   - Full end-to-end regression testing across all 24 supported formats with a 100% pass rate.
 
 ---
 
@@ -150,7 +172,7 @@ The repository uses a fully self-contained offline build toolchain:
 # 1. Compile COM DLL, Worker service, and Settings GUI
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 
-# 2. Run the automated 24-point feature test suite
+# 2. Run the automated 38-point feature test suite
 powershell -ExecutionPolicy Bypass -File tests\test_all_features.ps1
 
 # 3. Package portable ZIP and modern Setup.exe installer
@@ -160,11 +182,11 @@ powershell -ExecutionPolicy Bypass -File scripts\package_release.ps1
 ### Directory Structure
 - `src/shell_ext/`: 64-bit native COM shell extension (`IThumbnailProvider`, `IPreviewHandler`, WebView2 bridge, Named Pipe IPC client)
 - `src/viewer/`: Self-contained Three.js interactive viewport (offline HTML/CSS/JS, component tree, 3D dimensioning, i18n, theme switching)
-- `src/worker/`: Isolated background Worker (native C++ STEP/IGES/BREP/DXF/PCD parsers, software rasterizer, Named Pipe daemon)
+- `src/worker/`: Isolated background Worker (native C++ STEP/IGES/BREP/DXF/PCD/LAS/INP/VTU parsers, software rasterizer, Named Pipe daemon)
 - `src/settings/`: Native Win32 GUI Control Center (`ModelPeekSettings.exe`)
 - `src/installer/`: Modern Fluent UI installer and clean uninstaller (`ModelPeek_Setup.exe`, `ModelPeekUninstall.exe`)
 - `manifests/`: Official Microsoft Winget package manifests
-- `sample_models/` & `sample_models2/`: Industrial and 3D test datasets for all 18 supported formats
+- `sample_models/` & `sample_models2/`: Industrial and 3D test datasets for all 24 supported formats
 - `tests/`: Automated test suite
 - `dist/`: Build outputs and release packages
 

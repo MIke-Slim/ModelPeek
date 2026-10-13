@@ -79,7 +79,9 @@ static const LPCWSTR SUPPORTED_EXTS[] = {
     // Tier 2 (Toolpath & CG):
     L".gcode", L".dae", L".3ds",
     // Tier 3 (AutoCAD & Point Clouds):
-    L".dxf", L".pcd"
+    L".dxf", L".pcd",
+    // Phase 1 (LiDAR, FEA Simulation, Commercial CAD & BIM):
+    L".las", L".inp", L".vtu", L".sldprt", L".ipt", L".rvt"
 };
 
 static HKEY GetRegistryRoot() {

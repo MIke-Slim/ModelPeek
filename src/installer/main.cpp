@@ -22,7 +22,7 @@
 #pragma comment(lib, "uxtheme.lib")
 
 #define IDR_PAYLOAD_ZIP 101
-#define MODELPEEK_VERSION_STR L"2.1.3"
+#define MODELPEEK_VERSION_STR L"2.2.0"
 
 // UI Theme Colors
 static const COLORREF CLR_BG         = RGB(248, 250, 252); // #F8FAFC
@@ -446,7 +446,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         SelectObject(hdc, g_hFontSmall);
         SetTextColor(hdc, CLR_PRIMARY);
-        DrawTextW(hdc, L"v2.1.3", -1, &rcBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        DrawTextW(hdc, L"v2.2.0", -1, &rcBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         // Subtitle
         SelectObject(hdc, g_hFontNormal);

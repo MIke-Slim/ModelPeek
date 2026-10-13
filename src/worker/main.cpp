@@ -1,6 +1,8 @@
 #include <windows.h>
 #include <shlwapi.h>
 #include <shellapi.h>
+#include <shobjidl.h>
+#include <thumbcache.h>
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -1084,6 +1086,561 @@ bool SaveSTL(const std::wstring& wpath, const std::vector<Triangle>& tris) {
     return true;
 }
 
+// ASPRS LAS point cloud parser (.las)
+bool LoadLAS(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"rb");
+    if (!f) return false;
+
+    char sig[4];
+    if (fread(sig, 1, 4, f) != 4 || memcmp(sig, "LASF", 4) != 0) {
+        fclose(f);
+        return false;
+    }
+
+    uint8_t verMajor = 0, verMinor = 0;
+    fseek(f, 24, SEEK_SET);
+    fread(&verMajor, 1, 1, f);
+    fread(&verMinor, 1, 1, f);
+
+    uint16_t headerSize = 0;
+    fseek(f, 94, SEEK_SET);
+    fread(&headerSize, 2, 1, f);
+
+    uint32_t offsetToPoints = 0;
+    fseek(f, 96, SEEK_SET);
+    fread(&offsetToPoints, 4, 1, f);
+
+    uint16_t pointRecordLen = 0;
+    fseek(f, 105, SEEK_SET);
+    fread(&pointRecordLen, 2, 1, f);
+
+    uint32_t legacyPointCount = 0;
+    fseek(f, 107, SEEK_SET);
+    fread(&legacyPointCount, 4, 1, f);
+
+    uint64_t totalPoints = legacyPointCount;
+    if (totalPoints == 0 && verMajor >= 1 && verMinor >= 4 && headerSize >= 375) {
+        fseek(f, 247, SEEK_SET);
+        fread(&totalPoints, 8, 1, f);
+    }
+
+    if (totalPoints == 0 || pointRecordLen < 12) {
+        fclose(f);
+        return false;
+    }
+
+    double scale[3], offset[3];
+    fseek(f, 131, SEEK_SET);
+    fread(scale, sizeof(double), 3, f);
+    fseek(f, 155, SEEK_SET);
+    fread(offset, sizeof(double), 3, f);
+
+    uint64_t stride = (totalPoints > 20000) ? (totalPoints / 15000 + 1) : 1;
+    std::vector<Vec3> points;
+    points.reserve(std::min((size_t)totalPoints, (size_t)25000));
+
+    fseek(f, offsetToPoints, SEEK_SET);
+    std::vector<uint8_t> rec(pointRecordLen);
+
+    for (uint64_t i = 0; i < totalPoints; ++i) {
+        if (fread(rec.data(), 1, pointRecordLen, f) != pointRecordLen) break;
+        if ((i % stride) == 0) {
+            int32_t rx = *(int32_t*)(&rec[0]);
+            int32_t ry = *(int32_t*)(&rec[4]);
+            int32_t rz = *(int32_t*)(&rec[8]);
+
+            float x = (float)(offset[0] + (double)rx * scale[0]);
+            float y = (float)(offset[1] + (double)ry * scale[1]);
+            float z = (float)(offset[2] + (double)rz * scale[2]);
+
+            points.push_back({x, y, z});
+            minB.x = std::min(minB.x, x);
+            minB.y = std::min(minB.y, y);
+            minB.z = std::min(minB.z, z);
+            maxB.x = std::max(maxB.x, x);
+            maxB.y = std::max(maxB.y, y);
+            maxB.z = std::max(maxB.z, z);
+        }
+    }
+    fclose(f);
+
+    if (points.empty()) return false;
+
+    float maxDim = std::max({maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z});
+    if (maxDim < 1e-4f) maxDim = 1.0f;
+    float r = std::max(maxDim * 0.007f, 0.03f);
+
+    tris.reserve(points.size() * 4);
+    for (const auto& pt : points) {
+        Vec3 v0 = pt + Vec3{0, r, 0};
+        Vec3 v1 = pt + Vec3{r * 0.94f, -r * 0.33f, 0};
+        Vec3 v2 = pt + Vec3{-r * 0.47f, -r * 0.33f, r * 0.81f};
+        Vec3 v3 = pt + Vec3{-r * 0.47f, -r * 0.33f, -r * 0.81f};
+
+        auto addTetraFace = [&](const Vec3& a, const Vec3& b, const Vec3& c) {
+            Triangle t;
+            t.v[0] = a; t.v[1] = b; t.v[2] = c;
+            t.normal = (b - a).cross(c - a).normalize();
+            tris.push_back(t);
+        };
+        addTetraFace(v0, v1, v2);
+        addTetraFace(v0, v2, v3);
+        addTetraFace(v0, v3, v1);
+        addTetraFace(v1, v3, v2);
+    }
+    return !tris.empty();
+}
+
+// Convert LAS point cloud to PCD format for Three.js viewer
+bool ConvertLASToPCD(const std::wstring& inLas, const std::wstring& outPcd) {
+    FILE* fin = _wfopen(inLas.c_str(), L"rb");
+    if (!fin) return false;
+
+    char sig[4];
+    if (fread(sig, 1, 4, fin) != 4 || memcmp(sig, "LASF", 4) != 0) {
+        fclose(fin);
+        return false;
+    }
+
+    uint8_t verMajor = 0, verMinor = 0;
+    fseek(fin, 24, SEEK_SET);
+    fread(&verMajor, 1, 1, fin);
+    fread(&verMinor, 1, 1, fin);
+
+    uint16_t headerSize = 0;
+    fseek(fin, 94, SEEK_SET);
+    fread(&headerSize, 2, 1, fin);
+
+    uint32_t offsetToPoints = 0;
+    fseek(fin, 96, SEEK_SET);
+    fread(&offsetToPoints, 4, 1, fin);
+
+    uint16_t pointRecordLen = 0;
+    fseek(fin, 105, SEEK_SET);
+    fread(&pointRecordLen, 2, 1, fin);
+
+    uint32_t legacyPointCount = 0;
+    fseek(fin, 107, SEEK_SET);
+    fread(&legacyPointCount, 4, 1, fin);
+
+    uint64_t totalPoints = legacyPointCount;
+    if (totalPoints == 0 && verMajor >= 1 && verMinor >= 4 && headerSize >= 375) {
+        fseek(fin, 247, SEEK_SET);
+        fread(&totalPoints, 8, 1, fin);
+    }
+
+    if (totalPoints == 0 || pointRecordLen < 12) {
+        fclose(fin);
+        return false;
+    }
+
+    double scale[3], offset[3];
+    fseek(fin, 131, SEEK_SET);
+    fread(scale, sizeof(double), 3, fin);
+    fseek(fin, 155, SEEK_SET);
+    fread(offset, sizeof(double), 3, fin);
+
+    uint64_t stride = (totalPoints > 200000) ? (totalPoints / 200000 + 1) : 1;
+    uint64_t writtenPoints = (totalPoints + stride - 1) / stride;
+
+    FILE* fout = _wfopen(outPcd.c_str(), L"wb");
+    if (!fout) {
+        fclose(fin);
+        return false;
+    }
+
+    fprintf(fout, "# .PCD v0.7 - Point Cloud Data file format\n");
+    fprintf(fout, "VERSION 0.7\n");
+    fprintf(fout, "FIELDS x y z\n");
+    fprintf(fout, "SIZE 4 4 4\n");
+    fprintf(fout, "TYPE F F F\n");
+    fprintf(fout, "COUNT 1 1 1\n");
+    fprintf(fout, "WIDTH %llu\n", (unsigned long long)writtenPoints);
+    fprintf(fout, "HEIGHT 1\n");
+    fprintf(fout, "VIEWPOINT 0 0 0 1 0 0 0\n");
+    fprintf(fout, "POINTS %llu\n", (unsigned long long)writtenPoints);
+    fprintf(fout, "DATA ascii\n");
+
+    fseek(fin, offsetToPoints, SEEK_SET);
+    std::vector<uint8_t> rec(pointRecordLen);
+
+    for (uint64_t i = 0; i < totalPoints; ++i) {
+        if (fread(rec.data(), 1, pointRecordLen, fin) != pointRecordLen) break;
+        if ((i % stride) == 0) {
+            int32_t rx = *(int32_t*)(&rec[0]);
+            int32_t ry = *(int32_t*)(&rec[4]);
+            int32_t rz = *(int32_t*)(&rec[8]);
+
+            float x = (float)(offset[0] + (double)rx * scale[0]);
+            float y = (float)(offset[1] + (double)ry * scale[1]);
+            float z = (float)(offset[2] + (double)rz * scale[2]);
+            fprintf(fout, "%.4f %.4f %.4f\n", x, y, z);
+        }
+    }
+    fclose(fin);
+    fclose(fout);
+    return true;
+}
+
+// Abaqus / NASTRAN Finite Element Mesh (.inp)
+bool LoadINP(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"r");
+    if (!f) return false;
+
+    std::unordered_map<int, Vec3> nodes;
+    struct Elem { std::vector<int> n; };
+    std::vector<Elem> elements;
+
+    char line[1024];
+    int mode = 0; // 0=none, 1=node, 2=element
+
+    while (fgets(line, sizeof(line), f)) {
+        char* p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '\0' || *p == '\r' || *p == '\n') continue;
+        if (p[0] == '*' && p[1] == '*') continue;
+
+        if (p[0] == '*') {
+            char kw[64] = {0};
+            sscanf(p, "*%63[^,\r\n ]", kw);
+            for (char* c = kw; *c; ++c) *c = (char)tolower(*c);
+
+            if (strcmp(kw, "node") == 0) {
+                mode = 1;
+            } else if (strcmp(kw, "element") == 0) {
+                mode = 2;
+            } else {
+                mode = 0;
+            }
+            continue;
+        }
+
+        if (mode == 1) {
+            int id = 0;
+            float x = 0, y = 0, z = 0;
+            if (sscanf(p, "%d , %f , %f , %f", &id, &x, &y, &z) == 4 ||
+                sscanf(p, "%d, %f, %f, %f", &id, &x, &y, &z) == 4) {
+                nodes[id] = {x, y, z};
+                minB.x = std::min(minB.x, x);
+                minB.y = std::min(minB.y, y);
+                minB.z = std::min(minB.z, z);
+                maxB.x = std::max(maxB.x, x);
+                maxB.y = std::max(maxB.y, y);
+                maxB.z = std::max(maxB.z, z);
+            }
+        } else if (mode == 2) {
+            std::vector<int> conn;
+            char* token = strtok(p, ",\r\n");
+            int idx = 0;
+            while (token) {
+                int val = atoi(token);
+                if (idx > 0) conn.push_back(val);
+                token = strtok(NULL, ",\r\n");
+                idx++;
+            }
+            if (!conn.empty()) {
+                elements.push_back({conn});
+            }
+        }
+    }
+    fclose(f);
+
+    if (nodes.empty() || elements.empty()) return false;
+
+    struct FaceQuad {
+        int v[4];
+        int count;
+    };
+    std::unordered_map<std::string, int> faceCountMap;
+    std::vector<FaceQuad> allFaces;
+
+    auto makeKey = [](int a, int b, int c, int d = 0) -> std::string {
+        int arr[4] = {a, b, c, d};
+        std::sort(arr, arr + (d != 0 ? 4 : 3));
+        if (d != 0) {
+            return std::to_string(arr[0]) + "_" + std::to_string(arr[1]) + "_" + std::to_string(arr[2]) + "_" + std::to_string(arr[3]);
+        }
+        return std::to_string(arr[0]) + "_" + std::to_string(arr[1]) + "_" + std::to_string(arr[2]);
+    };
+
+    auto addQuad = [&](int a, int b, int c, int d) {
+        allFaces.push_back({{a, b, c, d}, 4});
+        faceCountMap[makeKey(a, b, c, d)]++;
+    };
+
+    auto addTri = [&](int a, int b, int c) {
+        allFaces.push_back({{a, b, c, 0}, 3});
+        faceCountMap[makeKey(a, b, c)]++;
+    };
+
+    for (const auto& el : elements) {
+        if (el.n.size() >= 8) { // C3D8 Hexahedron
+            addQuad(el.n[0], el.n[1], el.n[2], el.n[3]);
+            addQuad(el.n[4], el.n[5], el.n[6], el.n[7]);
+            addQuad(el.n[0], el.n[1], el.n[5], el.n[4]);
+            addQuad(el.n[1], el.n[2], el.n[6], el.n[5]);
+            addQuad(el.n[2], el.n[3], el.n[7], el.n[6]);
+            addQuad(el.n[3], el.n[0], el.n[4], el.n[7]);
+        } else if (el.n.size() >= 4 && el.n.size() < 6) { // C3D4 Tetra or S4 Quad
+            addTri(el.n[0], el.n[1], el.n[2]);
+            addTri(el.n[0], el.n[1], el.n[3]);
+            addTri(el.n[1], el.n[2], el.n[3]);
+            addTri(el.n[2], el.n[0], el.n[3]);
+        } else if (el.n.size() == 3) { // S3 Triangle
+            addTri(el.n[0], el.n[1], el.n[2]);
+        } else if (el.n.size() == 6) { // C3D6 Wedge
+            addTri(el.n[0], el.n[1], el.n[2]);
+            addTri(el.n[3], el.n[4], el.n[5]);
+            addQuad(el.n[0], el.n[1], el.n[4], el.n[3]);
+            addQuad(el.n[1], el.n[2], el.n[5], el.n[4]);
+            addQuad(el.n[2], el.n[0], el.n[3], el.n[5]);
+        }
+    }
+
+    for (const auto& fq : allFaces) {
+        std::string key = (fq.count == 4) ? makeKey(fq.v[0], fq.v[1], fq.v[2], fq.v[3]) : makeKey(fq.v[0], fq.v[1], fq.v[2]);
+        if (faceCountMap[key] == 1) {
+            auto it0 = nodes.find(fq.v[0]);
+            auto it1 = nodes.find(fq.v[1]);
+            auto it2 = nodes.find(fq.v[2]);
+            if (it0 == nodes.end() || it1 == nodes.end() || it2 == nodes.end()) continue;
+
+            Vec3 p0 = it0->second, p1 = it1->second, p2 = it2->second;
+            Vec3 norm1 = (p1 - p0).cross(p2 - p0).normalize();
+            tris.push_back({{p0, p1, p2}, norm1});
+
+            if (fq.count == 4) {
+                auto it3 = nodes.find(fq.v[3]);
+                if (it3 != nodes.end()) {
+                    Vec3 p3 = it3->second;
+                    Vec3 norm2 = (p2 - p0).cross(p3 - p0).normalize();
+                    tris.push_back({{p0, p2, p3}, norm2});
+                }
+            }
+        }
+    }
+
+    return !tris.empty();
+}
+
+// VTK XML Unstructured Grid (.vtu)
+bool LoadVTU(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB, Vec3& maxB) {
+    tris.clear();
+    minB = {1e9f, 1e9f, 1e9f};
+    maxB = {-1e9f, -1e9f, -1e9f};
+
+    FILE* f = _wfopen(wpath.c_str(), L"rb");
+    if (!f) return false;
+
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0 || sz > 50 * 1024 * 1024) {
+        fclose(f);
+        return false;
+    }
+
+    std::string content(sz, '\0');
+    fread(&content[0], 1, sz, f);
+    fclose(f);
+
+    size_t ptsPos = content.find("<Points>");
+    if (ptsPos == std::string::npos) return false;
+    size_t dataPos = content.find("<DataArray", ptsPos);
+    if (dataPos == std::string::npos) return false;
+    size_t dataStart = content.find(">", dataPos);
+    if (dataStart == std::string::npos) return false;
+    dataStart++;
+    size_t dataEnd = content.find("</DataArray>", dataStart);
+    if (dataEnd == std::string::npos) return false;
+
+    std::string ptsStr = content.substr(dataStart, dataEnd - dataStart);
+    std::stringstream ssPts(ptsStr);
+    std::vector<Vec3> points;
+    float x, y, z;
+    while (ssPts >> x >> y >> z) {
+        points.push_back({x, y, z});
+        minB.x = std::min(minB.x, x);
+        minB.y = std::min(minB.y, y);
+        minB.z = std::min(minB.z, z);
+        maxB.x = std::max(maxB.x, x);
+        maxB.y = std::max(maxB.y, y);
+        maxB.z = std::max(maxB.z, z);
+    }
+
+    if (points.empty()) return false;
+
+    size_t cellsPos = content.find("<Cells>");
+    if (cellsPos == std::string::npos) return false;
+    size_t connPos = content.find("Name=\"connectivity\"", cellsPos);
+    if (connPos == std::string::npos) connPos = content.find("Name='connectivity'", cellsPos);
+    if (connPos == std::string::npos) return false;
+    size_t connStart = content.find(">", connPos) + 1;
+    size_t connEnd = content.find("</DataArray>", connStart);
+    std::string connStr = content.substr(connStart, connEnd - connStart);
+    std::stringstream ssConn(connStr);
+    std::vector<int> conn;
+    int idx;
+    while (ssConn >> idx) conn.push_back(idx);
+
+    size_t typesPos = content.find("Name=\"types\"", cellsPos);
+    if (typesPos == std::string::npos) typesPos = content.find("Name='types'", cellsPos);
+    std::vector<int> types;
+    if (typesPos != std::string::npos) {
+        size_t typesStart = content.find(">", typesPos) + 1;
+        size_t typesEnd = content.find("</DataArray>", typesStart);
+        std::string typesStr = content.substr(typesStart, typesEnd - typesStart);
+        std::stringstream ssTypes(typesStr);
+        int t;
+        while (ssTypes >> t) types.push_back(t);
+    }
+
+    size_t offPos = content.find("Name=\"offsets\"", cellsPos);
+    if (offPos == std::string::npos) offPos = content.find("Name='offsets'", cellsPos);
+    std::vector<int> offsets;
+    if (offPos != std::string::npos) {
+        size_t offStart = content.find(">", offPos) + 1;
+        size_t offEnd = content.find("</DataArray>", offStart);
+        std::string offStr = content.substr(offStart, offEnd - offStart);
+        std::stringstream ssOff(offStr);
+        int o;
+        while (ssOff >> o) offsets.push_back(o);
+    }
+
+    size_t curConn = 0;
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        size_t nextConn = offsets[i];
+        size_t count = nextConn - curConn;
+        int cellType = (i < types.size()) ? types[i] : (count == 3 ? 5 : (count == 4 ? 9 : 0));
+
+        if (cellType == 5 && count >= 3) {
+            int i0 = conn[curConn], i1 = conn[curConn + 1], i2 = conn[curConn + 2];
+            if (i0 < (int)points.size() && i1 < (int)points.size() && i2 < (int)points.size()) {
+                Vec3 p0 = points[i0], p1 = points[i1], p2 = points[i2];
+                Vec3 n = (p1 - p0).cross(p2 - p0).normalize();
+                tris.push_back({{p0, p1, p2}, n});
+            }
+        } else if (cellType == 9 && count >= 4) {
+            int i0 = conn[curConn], i1 = conn[curConn + 1], i2 = conn[curConn + 2], i3 = conn[curConn + 3];
+            if (i0 < (int)points.size() && i1 < (int)points.size() && i2 < (int)points.size() && i3 < (int)points.size()) {
+                Vec3 p0 = points[i0], p1 = points[i1], p2 = points[i2], p3 = points[i3];
+                Vec3 n1 = (p1 - p0).cross(p2 - p0).normalize();
+                tris.push_back({{p0, p1, p2}, n1});
+                Vec3 n2 = (p2 - p0).cross(p3 - p0).normalize();
+                tris.push_back({{p0, p2, p3}, n2});
+            }
+        } else if (cellType == 10 && count >= 4) {
+            int i0 = conn[curConn], i1 = conn[curConn + 1], i2 = conn[curConn + 2], i3 = conn[curConn + 3];
+            auto addT = [&](int a, int b, int c) {
+                if (a < (int)points.size() && b < (int)points.size() && c < (int)points.size()) {
+                    Vec3 pa = points[a], pb = points[b], pc = points[c];
+                    tris.push_back({{pa, pb, pc}, (pb - pa).cross(pc - pa).normalize()});
+                }
+            };
+            addT(i0, i1, i2); addT(i0, i1, i3); addT(i1, i2, i3); addT(i2, i0, i3);
+        } else if (cellType == 12 && count >= 8) {
+            int n[8];
+            for (int k = 0; k < 8; ++k) n[k] = conn[curConn + k];
+            auto addQ = [&](int a, int b, int c, int d) {
+                if (a < (int)points.size() && b < (int)points.size() && c < (int)points.size() && d < (int)points.size()) {
+                    Vec3 pa = points[a], pb = points[b], pc = points[c], pd = points[d];
+                    Vec3 n1 = (pb - pa).cross(pc - pa).normalize();
+                    tris.push_back({{pa, pb, pc}, n1});
+                    Vec3 n2 = (pc - pa).cross(pd - pa).normalize();
+                    tris.push_back({{pa, pc, pd}, n2});
+                }
+            };
+            addQ(n[0], n[1], n[2], n[3]);
+            addQ(n[4], n[5], n[6], n[7]);
+            addQ(n[0], n[1], n[5], n[4]);
+            addQ(n[1], n[2], n[6], n[5]);
+            addQ(n[2], n[3], n[7], n[6]);
+            addQ(n[3], n[0], n[4], n[7]);
+        }
+        curConn = nextConn;
+    }
+    return !tris.empty();
+}
+
+// Save HBITMAP to 32-bit BMP
+bool SaveHBitmapToBmp(HBITMAP hBmp, const std::wstring& outBmpPath) {
+    if (!hBmp) return false;
+
+    BITMAP bm;
+    if (!GetObject(hBmp, sizeof(bm), &bm)) return false;
+
+    HDC hdc = GetDC(NULL);
+    BITMAPINFO bi = {0};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = bm.bmWidth;
+    bi.bmiHeader.biHeight = bm.bmHeight;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    DWORD rowSize = bm.bmWidth * 4;
+    DWORD imgSize = rowSize * bm.bmHeight;
+    std::vector<uint8_t> pixels(imgSize);
+
+    if (!GetDIBits(hdc, hBmp, 0, bm.bmHeight, pixels.data(), &bi, DIB_RGB_COLORS)) {
+        ReleaseDC(NULL, hdc);
+        return false;
+    }
+    ReleaseDC(NULL, hdc);
+
+    FILE* f = _wfopen(outBmpPath.c_str(), L"wb");
+    if (!f) return false;
+
+    BITMAPFILEHEADER bfh = {0};
+    bfh.bfType = 0x4D42; // "BM"
+    bfh.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+    bfh.bfSize = bfh.bfOffBits + imgSize;
+
+    fwrite(&bfh, sizeof(bfh), 1, f);
+    fwrite(&bi.bmiHeader, sizeof(bi.bmiHeader), 1, f);
+    fwrite(pixels.data(), 1, imgSize, f);
+    fclose(f);
+    return true;
+}
+
+// Extract thumbnail via Windows Shell / OLE for SLDPRT, IPT, RVT
+bool ExtractShellThumbnail(const std::wstring& filePath, const std::wstring& outBmpPath, int size) {
+    HRESULT hrCo = CoInitialize(NULL);
+    bool success = false;
+
+    IShellItem* psi = NULL;
+    HRESULT hr = SHCreateItemFromParsingName(filePath.c_str(), NULL, IID_PPV_ARGS(&psi));
+    if (SUCCEEDED(hr) && psi) {
+        IShellItemImageFactory* siif = NULL;
+        hr = psi->QueryInterface(IID_PPV_ARGS(&siif));
+        if (SUCCEEDED(hr) && siif) {
+            SIZE sz = { (LONG)size, (LONG)size };
+            HBITMAP hBmp = NULL;
+            hr = siif->GetImage(sz, SIIGBF_THUMBNAILONLY, &hBmp);
+            if (SUCCEEDED(hr) && hBmp) {
+                success = SaveHBitmapToBmp(hBmp, outBmpPath);
+                DeleteObject(hBmp);
+            }
+            siif->Release();
+        }
+        psi->Release();
+    }
+
+    if (SUCCEEDED(hrCo)) {
+        CoUninitialize();
+    }
+    return success;
+}
+
+
 // 256x256 Soft Rasterizer for CAD Thumbnails
 void RenderThumbnail(const std::vector<Triangle>& tris, const Vec3& minB, const Vec3& maxB, int W, int H, const std::wstring& outBmp) {
     std::vector<uint32_t> pixels(W * H, 0xFF1E222B); // CAD dark slate background
@@ -1273,6 +1830,13 @@ bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int
         for (auto& c : ext) c = towlower(c);
     }
 
+    // Fast OLE / Shell thumbnail extraction for CAD assemblies / parts
+    if (ext == L".sldprt" || ext == L".sldasm" || ext == L".ipt" || ext == L".iam" || ext == L".rvt") {
+        if (ExtractShellThumbnail(input, output, size)) {
+            return true;
+        }
+    }
+
     std::vector<Triangle> tris;
     Vec3 minB, maxB;
     bool loaded = false;
@@ -1288,6 +1852,12 @@ bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int
         loaded = LoadDXF(input, tris, minB, maxB);
     } else if (ext == L".pcd") {
         loaded = LoadPCD(input, tris, minB, maxB);
+    } else if (ext == L".las" || ext == L".laz") {
+        loaded = LoadLAS(input, tris, minB, maxB);
+    } else if (ext == L".inp") {
+        loaded = LoadINP(input, tris, minB, maxB);
+    } else if (ext == L".vtu" || ext == L".vtk") {
+        loaded = LoadVTU(input, tris, minB, maxB);
     } else if (ext == L".gcode") {
         loaded = LoadGCode(input, tris, minB, maxB);
     } else if (ext == L".3ds") {
@@ -1315,6 +1885,35 @@ bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int
 
     RenderThumbnail(tris, minB, maxB, size, size, output);
     return PathFileExistsW(output.c_str()) == TRUE;
+}
+
+bool ConvertModel(const std::wstring& input, const std::wstring& output) {
+    std::wstring ext;
+    size_t dot = input.find_last_of(L'.');
+    if (dot != std::wstring::npos) {
+        ext = input.substr(dot);
+        for (auto& c : ext) c = towlower(c);
+    }
+
+    std::vector<Triangle> tris;
+    Vec3 minB, maxB;
+    if (ext == L".step" || ext == L".stp") {
+        if (LoadSTEP(input, tris, minB, maxB) && SaveSTL(output, tris)) return true;
+    } else if (ext == L".iges" || ext == L".igs") {
+        if (LoadIGES(input, tris, minB, maxB) && SaveSTL(output, tris)) return true;
+    } else if (ext == L".brep" || ext == L".brp") {
+        if (LoadBREP(input, tris, minB, maxB) && SaveSTL(output, tris)) return true;
+    } else if (ext == L".inp") {
+        if (LoadINP(input, tris, minB, maxB) && SaveSTL(output, tris)) return true;
+    } else if (ext == L".vtu" || ext == L".vtk") {
+        if (LoadVTU(input, tris, minB, maxB) && SaveSTL(output, tris)) return true;
+    } else if (ext == L".las" || ext == L".laz") {
+        if (ConvertLASToPCD(input, output)) return true;
+    } else if (ext == L".sldprt" || ext == L".sldasm" || ext == L".ipt" || ext == L".iam" || ext == L".rvt") {
+        if (ExtractShellThumbnail(input, output, 1024)) return true;
+    }
+
+    return RunCadConverter(input, output);
 }
 
 void RunDaemonMode() {
@@ -1353,7 +1952,7 @@ void RunDaemonMode() {
                         response = L"SUCCESS\n";
                     }
                 } else if (op == L"convert" && !arg1.empty() && !arg2.empty()) {
-                    if (RunCadConverter(arg1, arg2)) {
+                    if (ConvertModel(arg1, arg2)) {
                         response = L"SUCCESS\n";
                     }
                 }
@@ -1390,29 +1989,7 @@ int main(int, char*[]) {
         std::wstring input = argv[2];
         std::wstring output = argv[3];
 
-        std::wstring ext;
-        size_t dot = input.find_last_of(L'.');
-        if (dot != std::wstring::npos) {
-            ext = input.substr(dot);
-            for (auto& c : ext) c = towlower(c);
-        }
-
-        bool converted = false;
-        std::vector<Triangle> tris;
-        Vec3 minB, maxB;
-        if (ext == L".step" || ext == L".stp") {
-            if (LoadSTEP(input, tris, minB, maxB) && SaveSTL(output, tris)) converted = true;
-        } else if (ext == L".iges" || ext == L".igs") {
-            if (LoadIGES(input, tris, minB, maxB) && SaveSTL(output, tris)) converted = true;
-        } else if (ext == L".brep" || ext == L".brp") {
-            if (LoadBREP(input, tris, minB, maxB) && SaveSTL(output, tris)) converted = true;
-        }
-
-        if (!converted) {
-            converted = RunCadConverter(input, output);
-        }
-
-        if (converted) {
+        if (ConvertModel(input, output)) {
             std::wcout << L"SUCCESS" << std::endl;
             LocalFree(argv);
             return 0;

@@ -50,7 +50,8 @@ static bool g_bCompleted = false;
 static const wchar_t* G_EXTENSIONS[] = {
     L".step", L".stp", L".iges", L".igs", L".brep", L".brp", L".dxf",
     L".stl", L".obj", L".3mf", L".glb", L".gltf", L".fbx",
-    L".ply", L".pcd", L".gcode", L".dae", L".3ds"
+    L".ply", L".pcd", L".gcode", L".dae", L".3ds",
+    L".las", L".inp", L".vtu", L".sldprt", L".ipt", L".rvt"
 };
 
 static const wchar_t* CLSID_THUMB = L"{E9B34A3E-94A5-47F1-A4FD-258F2C411311}";

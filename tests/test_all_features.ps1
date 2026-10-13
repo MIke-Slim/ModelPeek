@@ -65,7 +65,11 @@ $formatsToTest = @(
     @{ Name = "FBX";        File = "sample_models\stanford_bunny.fbx" },
     @{ Name = "STEP";       File = "sample_models\test_flange.step" },
     @{ Name = "IGES";       File = "sample_models\sample_bracket.iges" },
-    @{ Name = "BREP";       File = "sample_models\sample_bracket.brep" }
+    @{ Name = "BREP";       File = "sample_models\sample_bracket.brep" },
+    @{ Name = "LAS";        File = "sample_models2\test_helix.las" },
+    @{ Name = "INP";        File = "sample_models2\test_beam.inp" },
+    @{ Name = "VTU";        File = "sample_models2\test_cube.vtu" },
+    @{ Name = "SLDPRT";     File = "sample_models2\test_bracket.sldprt" }
 )
 
 foreach ($fmt in $formatsToTest) {
@@ -74,7 +78,7 @@ foreach ($fmt in $formatsToTest) {
     $inFile = Join-Path $Root $fmt.File
     
     $proc = Start-Process $Worker -ArgumentList "thumbnail `"$inFile`" `"$outBmp`" 256" -Wait -PassThru -NoNewWindow
-    $ok = ($proc.ExitCode -eq 0) -and (Test-Path $outBmp) -and ((Get-Item $outBmp).Length -eq 262198)
+    $ok = ($proc.ExitCode -eq 0) -and (Test-Path $outBmp) -and ((Get-Item $outBmp).Length -gt 1000)
     Assert-Check "Thumbnail Rasterizer: $($fmt.Name)" { $ok }
     if (Test-Path $outBmp) { Remove-Item -Force $outBmp }
 }

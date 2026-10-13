@@ -327,6 +327,25 @@ class ModelPeekViewer {
                     }, onProgress, onError);
                     break;
 
+                case 'bmp':
+                case 'png':
+                case 'jpg':
+                case 'jpeg':
+                    new THREE.TextureLoader().load(fileUrl, (texture) => {
+                        texture.minFilter = THREE.LinearFilter;
+                        texture.magFilter = THREE.LinearFilter;
+                        const img = texture.image;
+                        const aspect = (img && img.height) ? (img.width / img.height) : 1.333;
+                        const cardW = 120 * aspect;
+                        const cardH = 120;
+                        const geom = new THREE.PlaneGeometry(cardW, cardH);
+                        const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+                        const mesh = new THREE.Mesh(geom, mat);
+                        mesh.name = fileName;
+                        this.setModel(mesh, filePath);
+                    }, onProgress, onError);
+                    break;
+
                 default:
                     this.hideLoader();
                     this.showToast(`暂不支持直接在视口解析 .${ext}，尝试由 Worker 转换后预览`);

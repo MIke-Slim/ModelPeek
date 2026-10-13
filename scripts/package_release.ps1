@@ -1,8 +1,8 @@
 # ModelPeek Release Packaging Script
 $ErrorActionPreference = "Stop"
 
-$Version = "v2.1.3"
-$VerNum = "2.1.3"
+$Version = "v2.2.0"
+$VerNum = "2.2.0"
 $Root = Split-Path -Parent $PSScriptRoot
 $Gxx = Join-Path $Root "tools\w64devkit\bin\g++.exe"
 $Windres = Join-Path $Root "tools\w64devkit\bin\windres.exe"
@@ -42,20 +42,20 @@ $ReadmeContent = @"
 ModelPeek 是一个轻量、高效、极其稳定的 Windows 资源管理器 3D/CAD 预览插件。
 支持在文件夹中直接查看真实立体 3D 缩略图，并在右侧预览窗格（Alt+P）中进行全交互式的 3D 旋转、缩放、剖切、零部件装配树与工程三维标注。
 
-【v2.1.1 重磅更新与稳定性加固】
-1. Windows 11 多标签页（Tabbed Explorer）死句柄自愈：彻底根治标签页切换导致预览空白的问题；
-2. AutoCAD 2023 专属图纸关联与防劫持：根除第三方办公套件对 DXF 图纸的强行接管，恢复原生 AutoCAD 图标与双击打开；
-3. 全新高精度工业测试套件：提供包含点云 PCD、CAD IGES/STEP、刀路 GCODE 等全 18 种格式的 sample_models2 示例库；
-4. 三维包围盒工程尺寸标注 (3D BBox Dimensions)：一键标注长宽高实体工程尺寸线与药丸标签；
-5. 全格式覆盖 18 种工业/3D 数据格式；
-6. 完整中英双语国际化跟随系统。
+【v2.2.0 阶段一扩展重磅更新】
+1. 激光雷达点云：纯原生 C++ 零依赖高速解析 .las / .laz 格式；
+2. 有限元与仿真网格：支持 Abaqus / NASTRAN .inp 与 VTK .vtu 仿真网格表面提取与立体预览；
+3. CAD 大厂零件突破：集成 Windows 原生 Shell / OLE 引擎，秒级提取 SolidWorks (.sldprt)、Inventor (.ipt) 与 Revit (.rvt) 缩略图；
+4. 全格式覆盖达到 24 种工业 CAD、点云、仿真与网格格式！
 
-【支持文件格式（全 18 种）】
-- CAD 工业级格式：.step, .stp, .iges, .igs, .brep, .brp, .dxf (AutoCAD 二维/三维图纸)
+【支持文件格式（全 24 种）】
+- CAD 工业级格式：.step, .stp, .iges, .igs, .brep, .brp, .dxf, .sldprt, .ipt
 - 通用 3D 网格：.stl, .obj, .3mf, .glb, .gltf, .fbx (含网格与骨骼曲线)
-- 点云与逆向扫描：.ply, .pcd (Point Cloud 激光雷达点云)
+- 逆向工程与点云扫描：.ply, .pcd, .las (Point Cloud 激光雷达点云)
 - 制造加工刀路：.gcode (CNC / 3D 打印切片刀轨)
+- 仿真与 BIM 建筑：.inp (Abaqus 网格), .vtu (VTK 网格), .rvt (Revit 建筑)
 - 经典 3D 格式：.dae, .3ds
+
 
 【安装方法（二选一）】
 方法一（推荐）：双击运行 ModelPeek_${Version}_Setup.exe 图形化安装向导；

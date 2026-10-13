@@ -25,7 +25,7 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "uuid.lib")
 
-#define MODELPEEK_VERSION_STR L"2.1.3"
+#define MODELPEEK_VERSION_STR L"2.2.0"
 
 // Theme Colors
 static const COLORREF CLR_BG         = RGB(248, 250, 252); // #F8FAFC
@@ -70,6 +70,8 @@ static std::vector<FormatInfo> g_formats = {
     { L".brep", L".brep (OpenCASCADE 边界)", L"CAD 工业标准格式", NULL },
     { L".brp",  L".brp (B-Rep 拓扑模型)", L"CAD 工业标准格式", NULL },
     { L".dxf",  L".dxf (AutoCAD 二维/三维图纸)", L"CAD 工业标准格式", NULL },
+    { L".sldprt", L".sldprt (SolidWorks 零件模型)", L"CAD 工业标准格式", NULL },
+    { L".ipt",  L".ipt (Autodesk Inventor 零件)", L"CAD 工业标准格式", NULL },
     // 通用三维网格格式
     { L".stl",  L".stl (Stereolithography 网格)", L"通用三维网格格式", NULL },
     { L".obj",  L".obj (Wavefront 3D 对象)", L"通用三维网格格式", NULL },
@@ -80,7 +82,12 @@ static std::vector<FormatInfo> g_formats = {
     // 逆向工程、扫描与制造格式
     { L".ply",  L".ply (Stanford 扫描网格)", L"逆向工程与制造格式", NULL },
     { L".pcd",  L".pcd (Point Cloud 激光点云)", L"逆向工程与制造格式", NULL },
+    { L".las",  L".las (ASPRS 激光雷达点云)", L"逆向工程与制造格式", NULL },
     { L".gcode",L".gcode (CNC / 3D 打印刀轨)", L"逆向工程与制造格式", NULL },
+    // 仿真与 BIM 建筑模型
+    { L".inp",  L".inp (Abaqus / NASTRAN 仿真网格)", L"仿真与 BIM 格式", NULL },
+    { L".vtu",  L".vtu (VTK 仿真非结构网格)", L"仿真与 BIM 格式", NULL },
+    { L".rvt",  L".rvt (Autodesk Revit 建筑模型)", L"仿真与 BIM 格式", NULL },
     // 经典 3D 格式
     { L".dae",  L".dae (Collada 交互式 3D 资产)", L"经典 3D 格式", NULL },
     { L".3ds",  L".3ds (3D Studio 经典网格)", L"经典 3D 格式", NULL }

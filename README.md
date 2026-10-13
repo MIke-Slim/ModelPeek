@@ -27,9 +27,9 @@
 进入 [GitHub Releases 页面](https://github.com/MIke-Slim/ModelPeek/releases) 或 [官网下载页面](https://modelpeek.mythickoala2.chatgpt.site) 获取最新安装包：
 
 ### 方式一：独立安装向导（强烈推荐）
-1. 下载 **`ModelPeek_v2.1.3_Setup.exe`**；
+1. 下载 **`ModelPeek_v2.2.0_Setup.exe`**；
 2. 双击运行安装程序，点击 **【立即安装】**；
-3. 程序自动完成 COM 扩展注册、关联 18 种三维格式、自动解除网络锁定，并在桌面和开始菜单生成管理快捷方式。
+3. 程序自动完成 COM 扩展注册、关联 24 种三维格式、自动解除网络锁定，并在桌面和开始菜单生成管理快捷方式。
 
 ### 方式二：Windows 包管理器 (Winget)
 在终端或 PowerShell 中运行：
@@ -38,7 +38,7 @@ winget install MIke-Slim.ModelPeek
 ```
 
 ### 方式三：免安装便携绿色版 (Portable)
-1. 下载 **`ModelPeek_v2.1.3_Portable_x64.zip`**；
+1. 下载 **`ModelPeek_v2.2.0_Portable_x64.zip`**；
 2. 解压到您希望存放的任意目录（如 `D:\Tools\ModelPeek`）；
 3. 右键点击 `install.bat`，选择 **【以管理员身份运行】** 即可完成一键激活；
 4. 若需卸载，右键管理员运行 `uninstall.bat` 即可干净清除所有系统注册项。
@@ -77,7 +77,7 @@ winget install MIke-Slim.ModelPeek
 
 ### 5. 控制中心与设置 (`ModelPeekSettings.exe`)
 桌面双击【ModelPeek 控制中心】：
-- **格式开关**：自由勾选或取消 18 种格式中任意格式的缩略图与预览扩展；
+- **格式开关**：自由勾选或取消 24 种格式中任意格式的缩略图与预览扩展；
 - **🔓 解除模型网络锁定**：一键清除网络下载文件附带的 Mark-of-the-Web 锁定，消除 Windows 弹窗警告；
 - **🧹 清理缩略图缓存**：一键刷新资源管理器图标缓存，强制重新渲染。
 
@@ -85,15 +85,37 @@ winget install MIke-Slim.ModelPeek
 
 ---
 
-## 📁 支持格式（全 18 种工业与通用格式）
+## 📁 支持格式（全 24 种工业与通用格式）
 
 | 分类 | 支持格式 | 技术亮点 |
 | :--- | :--- | :--- |
-| **CAD 工业级格式** | `.step`, `.stp`, `.iges`, `.igs`, `.brep`, `.brp`, `.dxf` | 采用 OpenCASCADE B-Rep 内核与纯原生 AutoCAD 矢量解析，支持实体面与曲线几何线框自适应渲染 |
+| **CAD 工业级模型与装配** | `.step`, `.stp`, `.iges`, `.igs`, `.brep`, `.brp`, `.dxf`, `.sldprt`, `.ipt` | 采用 OpenCASCADE B-Rep 内核与纯原生 AutoCAD 矢量解析；针对 SolidWorks (`.sldprt`) 与 Inventor (`.ipt`) 支持零延迟原生 Shell 渲染快照提取与 3D 全景卡片 |
 | **通用 3D 网格** | `.stl`, `.obj`, `.3mf`, `.glb`, `.gltf`, `.fbx` | 支持 ASCII/Binary STL、材质贴图、多网格装配树与 FBX NURBS 曲线 |
-| **点云与逆向扫描** | `.ply`, `.pcd` | 支持 Stanford PLY 真彩顶点色与 LiDAR/PCL 激光雷达点云粒子化渲染 |
+| **点云与逆向扫描** | `.ply`, `.pcd`, `.las` | 支持 Stanford PLY 真彩顶点色、LiDAR 激光雷达点云（`.las` 原生二进制解析）及 PCL 点云粒子化渲染 |
+| **工程仿真与有限元 (CAE)** | `.inp`, `.vtu` | 独创内面抵消抽取闭合外表面算法，纯原生直接解析 Abaqus/NASTRAN 网格（`.inp`）与 VTK 非结构化网格（`.vtu`） |
+| **BIM 建筑信息模型** | `.rvt` | 支持 Autodesk Revit 建筑模型原生高清物理渲染预览与视口 3D 全景卡片 |
 | **制造加工与切片路径** | `.gcode` | 逐层刀轨路径 3D 空间可视化 |
 | **多媒体与经典 3D 格式** | `.dae` (Collada), `.3ds` (3D Studio) | 经典三维交换资产无缝预览 |
+
+---
+
+## 🚀 v2.2.0 重磅升级：跨入专业 CAD / CAE / BIM / LiDAR 全领域支持
+
+1. **🌟 格式体系扩充至 24 种主流格式 (新增 6 种重磅工业格式)**
+   - **LiDAR 测绘点云**：新增 `.las` 格式；
+   - **工程仿真有限元网格**：新增 `.inp` (Abaqus / NASTRAN) 与 `.vtu` (VTK Unstructured Grid)；
+   - **商业工业 CAD 零件**：新增 `.sldprt` (SolidWorks) 与 `.ipt` (Autodesk Inventor)；
+   - **BIM 建筑信息模型**：新增 `.rvt` (Autodesk Revit)。
+
+2. **⚡ 纯原生 C++ 零依赖 CAE/点云解析引擎**
+   - **LiDAR 点云 (`.las`)**：直接解析 ASPRS 工业级二进制 LAS 格式，自动生成高密度粒子点云并支持 3D 交互漫游。
+   - **CAE 网格 (`.inp`, `.vtu`)**：内置 Abaqus/NASTRAN 实体/壳单元拓扑提取与 VTK XML Unstructured Grid 解析，独创的内部共用面消除算法，毫秒级提取光滑封闭外表面。
+
+3. **🖼️ 工业 CAD 与 BIM 原生渲染提取 (`.sldprt`, `.ipt`, `.rvt`)**
+   - 深度集成 Windows Shell COM `IShellItemImageFactory`，瞬间提取高精度原生物理材质快照，并在 3D 预览窗格中提供可自由旋转缩放的 3D 全景立体卡片。
+
+4. **🧪 自动化测试验证体系扩充至 38 项**
+   - 全格式全链路自动化回归测试，24 种格式在 Windows 资源管理器缩略图与预览窗格上均达到 100% 通过率。
 
 ---
 
@@ -152,7 +174,7 @@ winget install MIke-Slim.ModelPeek
 # 1. 编译核心 DLL、Worker 与控制中心
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 
-# 2. 运行自动化全功能测试验证套件 (24 项测试)
+# 2. 运行自动化全功能测试验证套件 (38 项测试)
 powershell -ExecutionPolicy Bypass -File tests\test_all_features.ps1
 
 # 3. 一键生成便携 Zip 与 Setup.exe 安装包
@@ -162,11 +184,11 @@ powershell -ExecutionPolicy Bypass -File scripts\package_release.ps1
 ### 目录结构说明
 - `src/shell_ext/`：64 位 COM 原生扩展（`IThumbnailProvider`、`IPreviewHandler`、WebView2 宿主桥接、命名管道 IPC 客户端）
 - `src/viewer/`：自包含 Three.js 交互视口（离线 HTML/CSS/JS、装配结构树、3D 包围盒标注、双语 i18n、主题切换）
-- `src/worker/`：独立后台 Worker（内置原生 C++ STEP/IGES/BREP/DXF/PCD 解析器、软件光栅化渲染器、命名管道守护进程服务端）
+- `src/worker/`：独立后台 Worker（内置原生 C++ STEP/IGES/BREP/DXF/PCD/LAS/INP/VTU 解析器、软件光栅化渲染器、命名管道守护进程服务端）
 - `src/settings/`：原生 Win32 GUI 配置中心（`ModelPeekSettings.exe`）
 - `src/installer/`：原生现代 Fluent UI 安装向导与卸载向导（`ModelPeek_Setup.exe`、`ModelPeekUninstall.exe`）
 - `manifests/`：官方 Microsoft Winget 软件包清单
-- `sample_models/` 与 `sample_models2/`：18 种格式工业与 3D 测试验证用例集合
+- `sample_models/` 与 `sample_models2/`：24 种格式工业与 3D 测试验证用例集合
 - `tests/`：自动化测试脚本套件
 - `dist/`：打包编译产物发布目录
 

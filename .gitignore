@@ -20,6 +20,8 @@ tests/*.exe
 release_staging/
 sample_models/*.bmp
 sample_models/*_out.*
+sample_models2/*.bmp
+sample_models2/*_out.*
 DashScope_*.md
 
 # IDE & OS files

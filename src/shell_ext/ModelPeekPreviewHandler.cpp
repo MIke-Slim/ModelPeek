@@ -398,8 +398,12 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
         for (auto& c : ext) c = towlower(c);
     }
 
-    bool isCadBrep = (ext == L".step" || ext == L".stp" || ext == L".iges" || ext == L".igs" || ext == L".brep" || ext == L".brp");
-    if (isCadBrep) {
+    bool isCadBrep = (ext == L".step" || ext == L".stp" || ext == L".iges" || ext == L".igs" || ext == L".brep" || ext == L".brp"
+                     || ext == L".inp" || ext == L".vtu" || ext == L".vtk");
+    bool isLas = (ext == L".las" || ext == L".laz");
+    bool isCadImage = (ext == L".sldprt" || ext == L".sldasm" || ext == L".ipt" || ext == L".iam" || ext == L".rvt");
+
+    if (isCadBrep || isLas || isCadImage) {
         std::wstring lowDir = GetLocalLowDir();
         if (!lowDir.empty()) {
             std::wstring cacheDir = lowDir + L"\\cache\\preview_mesh";
@@ -412,17 +416,23 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
                 hash *= 1099511628211ULL;
             }
             std::wstringstream ss;
-            ss << cacheDir << L"\\" << std::hex << hash << L".stl";
-            std::wstring cachedStl = ss.str();
+            if (isLas) {
+                ss << cacheDir << L"\\" << std::hex << hash << L".pcd";
+            } else if (isCadImage) {
+                ss << cacheDir << L"\\" << std::hex << hash << L".bmp";
+            } else {
+                ss << cacheDir << L"\\" << std::hex << hash << L".stl";
+            }
+            std::wstring cachedTarget = ss.str();
 
-            if (!PathFileExistsW(cachedStl.c_str())) {
+            if (!PathFileExistsW(cachedTarget.c_str())) {
                 bool pipeConverted = false;
                 LPCWSTR pipeName = L"\\\\.\\pipe\\ModelPeekWorkerPipe";
                 if (WaitNamedPipeW(pipeName, 20)) {
                     HANDLE hPipe = CreateFileW(pipeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
                     if (hPipe != INVALID_HANDLE_VALUE) {
                         std::wstringstream req;
-                        req << L"convert\t" << filePath << L"\t" << cachedStl;
+                        req << L"convert\t" << filePath << L"\t" << cachedTarget;
                         std::wstring reqStr = req.str();
                         DWORD written = 0;
                         if (WriteFile(hPipe, reqStr.c_str(), (DWORD)(reqStr.length() * sizeof(WCHAR)), &written, NULL)) {
@@ -431,9 +441,9 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
                             ReadFile(hPipe, resp, sizeof(resp) - sizeof(WCHAR), &read, NULL);
                         }
                         CloseHandle(hPipe);
-                        if (PathFileExistsW(cachedStl.c_str())) {
+                        if (PathFileExistsW(cachedTarget.c_str())) {
                             pipeConverted = true;
-                            LogTrace(L"PreviewHandler: CAD converted via Daemon Named Pipe successfully!");
+                            LogTrace(L"PreviewHandler: Model converted via Daemon Named Pipe successfully!");
                         }
                     }
                 }
@@ -445,7 +455,7 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
                     std::wstring workerExe = std::wstring(modulePath) + L"\\ModelPeekWorker.exe";
 
                     std::wstringstream cmd;
-                    cmd << L"\"" << workerExe << L"\" convert \"" << filePath << L"\" \"" << cachedStl << L"\"";
+                    cmd << L"\"" << workerExe << L"\" convert \"" << filePath << L"\" \"" << cachedTarget << L"\"";
 
                     STARTUPINFOW si = { sizeof(si) };
                     PROCESS_INFORMATION pi = { 0 };
@@ -464,11 +474,11 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
                 }
             }
 
-            if (PathFileExistsW(cachedStl.c_str())) {
-                LogTrace(L"PreviewHandler: CAD converted successfully to: " + cachedStl);
-                return cachedStl;
+            if (PathFileExistsW(cachedTarget.c_str())) {
+                LogTrace(L"PreviewHandler: Model converted successfully to: " + cachedTarget);
+                return cachedTarget;
             } else {
-                LogTrace(L"PreviewHandler: CAD conversion FAILED to produce: " + cachedStl);
+                LogTrace(L"PreviewHandler: Model conversion FAILED to produce: " + cachedTarget);
             }
         }
     }

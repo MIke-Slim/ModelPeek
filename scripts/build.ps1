@@ -49,7 +49,7 @@ Write-Host "[2/3] Compiling ModelPeekWorker.exe..." -ForegroundColor Yellow
 & $Gxx -O2 -march=x86-64 `
     "$Root\src\worker\main.cpp" `
     -o "$Root\dist\ModelPeekWorker.exe" `
-    -lshlwapi -static-libgcc -static-libstdc++
+    -lshlwapi -lole32 -lshell32 -luser32 -lgdi32 -luuid -static-libgcc -static-libstdc++
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to build ModelPeekWorker.exe"
