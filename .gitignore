@@ -28,9 +28,12 @@ DashScope_*.md
 Thumbs.db
 Desktop.ini
 
-# Media Generator & OAuth credentials
-media_generator/client_secret*.json
-media_generator/token*.json
-media_generator/auth_url.txt
-media_generator/output/
-media_generator/audio/
+# VM test artifacts
+guest_*.ps1
+guest_*.txt
+vm_screen*.png
+
+# Media Generator & Video Production Packages
+media_generator/
+AI视频生成物料包_ModelPeek/
+
