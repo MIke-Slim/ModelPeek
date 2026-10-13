@@ -203,8 +203,10 @@ bool ModelPeekThumbnailProvider::GenerateThumbnail(const std::wstring& filePath,
     std::vector<WCHAR> cmdLine(cmdStr.begin(), cmdStr.end());
     cmdLine.push_back(L'\0');
 
-    if (CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 20000);
+    if (CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi)) {
+        if (WaitForSingleObject(pi.hProcess, 4000) == WAIT_TIMEOUT) {
+            TerminateProcess(pi.hProcess, 1);
+        }
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
     }

@@ -467,7 +467,9 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
                     cmdLine.push_back(L'\0');
 
                     if (CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-                        WaitForSingleObject(pi.hProcess, 8000);
+                        if (WaitForSingleObject(pi.hProcess, 3000) == WAIT_TIMEOUT) {
+                            TerminateProcess(pi.hProcess, 1);
+                        }
                         CloseHandle(pi.hProcess);
                         CloseHandle(pi.hThread);
                     }
@@ -492,7 +494,19 @@ bool ModelPeekPreviewHandler::InitWebView2() {
     CreateDirectoryW(userDataFolder.c_str(), NULL);
     LogTrace(L"PreviewHandler: using userDataFolder=" + userDataFolder);
 
-    SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", L"--allow-file-access-from-files --disable-web-security");
+    SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
+        L"--allow-file-access-from-files "
+        L"--disable-web-security "
+        L"--disable-features=msSmartScreenProtection,msEdgePasswordManager,msDownloadsHub,CalculateNativeWinOcclusion,OptimizationHints "
+        L"--disable-background-networking "
+        L"--disable-component-update "
+        L"--disable-sync "
+        L"--disable-breakpad "
+        L"--disable-gpu-watchdog "
+        L"--disable-hang-monitor "
+        L"--no-first-run "
+        L"--enable-webgl "
+        L"--ignore-gpu-blocklist");
 
     auto onEnvCreated = [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
         LogTrace(L"onEnvCreated callback hr=" + std::to_wstring(result));

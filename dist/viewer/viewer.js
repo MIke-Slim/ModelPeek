@@ -147,7 +147,7 @@ class ModelPeekViewer {
             alpha: true,
             preserveDrawingBuffer: true,
             powerPreference: "high-performance",
-            logarithmicDepthBuffer: true
+            logarithmicDepthBuffer: false
         });
         this.renderer.setSize(width, height);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -431,9 +431,6 @@ class ModelPeekViewer {
         this.camera.far = Math.max(r * 200, 200000000);
         this.camera.updateProjectionMatrix();
 
-        // Generate Edge Lines for CAD look
-        this.generateEdgeLines();
-
         // Collect model components for Assembly Tree
         this.modelComponents = [];
         this.selectedComponentId = null;
@@ -489,6 +486,9 @@ class ModelPeekViewer {
         });
 
         this.hideLoader();
+
+        // Defer Edge Lines generation to keep initial render instantaneous (<50ms)
+        setTimeout(() => this.generateEdgeLines(), 30);
     }
 
     createDefaultMaterial() {
@@ -506,9 +506,21 @@ class ModelPeekViewer {
             this.edgeLines = null;
         }
 
+        if (this.renderMode !== 'shaded_edges' || !this.currentModel) return;
+
         const edgeGroup = new THREE.Group();
         this.currentModel.traverse((child) => {
             if (child.isMesh && child.geometry) {
+                let pFaces = 0;
+                if (child.geometry.index) {
+                    pFaces = child.geometry.index.count / 3;
+                } else if (child.geometry.attributes && child.geometry.attributes.position) {
+                    pFaces = child.geometry.attributes.position.count / 3;
+                }
+                // Skip expensive edge geometry on high-poly meshes (> 20,000 faces)
+                // to maintain fluid 60fps and instant navigation in virtual machines
+                if (pFaces > 20000) return;
+
                 const edgesGeometry = new THREE.EdgesGeometry(child.geometry, 28);
                 const line = new THREE.LineSegments(
                     edgesGeometry,
@@ -522,7 +534,7 @@ class ModelPeekViewer {
         });
 
         this.edgeLines = edgeGroup;
-        if (this.renderMode === 'shaded_edges') {
+        if (this.renderMode === 'shaded_edges' && this.edgeLines.children.length > 0) {
             this.scene.add(this.edgeLines);
         }
     }

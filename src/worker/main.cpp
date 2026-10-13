@@ -1809,7 +1809,9 @@ bool RunCadConverter(const std::wstring& inputStep, const std::wstring& outputSt
         return false;
     }
 
-    WaitForSingleObject(pi.hProcess, 15000);
+    if (WaitForSingleObject(pi.hProcess, 4000) == WAIT_TIMEOUT) {
+        TerminateProcess(pi.hProcess, 1);
+    }
     DWORD exitCode = 0;
     GetExitCodeProcess(pi.hProcess, &exitCode);
     CloseHandle(pi.hProcess);
@@ -1835,6 +1837,8 @@ bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int
         if (ExtractShellThumbnail(input, output, size)) {
             return true;
         }
+        // Do NOT fall through to Python for proprietary CAD/BIM!
+        return false;
     }
 
     std::vector<Triangle> tris;
@@ -1870,8 +1874,16 @@ bool ProcessThumbnail(const std::wstring& input, const std::wstring& output, int
         loaded = LoadBREP(input, tris, minB, maxB);
     }
 
-    // 2. Extended formats conversion fallback (.step, .stp, .iges, .igs, .brep, .brp, .gltf, .glb, .3mf, .dae, .fbx, etc.)
+    // 2. Extended formats conversion fallback (.gltf, .glb, .3mf, .dae, .fbx, etc.)
     if (!loaded) {
+        // Fast-fail: NEVER attempt Python fallback for formats that Python cannot convert
+        // or that are strictly native / external shell only!
+        if (ext == L".sldprt" || ext == L".sldasm" || ext == L".ipt" || ext == L".iam" || ext == L".rvt"
+            || ext == L".las" || ext == L".laz" || ext == L".inp" || ext == L".vtu" || ext == L".vtk"
+            || ext == L".dxf" || ext == L".pcd" || ext == L".gcode" || ext == L".stl" || ext == L".obj") {
+            return false;
+        }
+
         std::wstring tempStl = output + L".tmp.stl";
         if (RunCadConverter(input, tempStl) && PathFileExistsW(tempStl.c_str())) {
             loaded = LoadSTL(tempStl, tris, minB, maxB);
@@ -1911,6 +1923,9 @@ bool ConvertModel(const std::wstring& input, const std::wstring& output) {
         if (ConvertLASToPCD(input, output)) return true;
     } else if (ext == L".sldprt" || ext == L".sldasm" || ext == L".ipt" || ext == L".iam" || ext == L".rvt") {
         if (ExtractShellThumbnail(input, output, 1024)) return true;
+        return false; // Do NOT fall through to RunCadConverter!
+    } else if (ext == L".stl" || ext == L".obj" || ext == L".ply" || ext == L".dxf" || ext == L".pcd") {
+        return false; // Already native Three.js loadable, no conversion
     }
 
     return RunCadConverter(input, output);
