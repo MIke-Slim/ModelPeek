@@ -51,7 +51,8 @@ static std::wstring DumpStreamToTemp(IStream* pStream, LPCWSTR origName) {
 
 ModelPeekPreviewHandler::ModelPeekPreviewHandler() 
     : m_refCount(1), m_hwndParent(NULL), m_hwndPreview(NULL),
-      m_punkSite(nullptr), m_controller(nullptr), m_webview(nullptr) {
+      m_punkSite(nullptr), m_controller(nullptr), m_webview(nullptr),
+      m_previewRequestId(0), m_isInitializingWebView(false) {
     ZeroMemory(&m_rcParent, sizeof(m_rcParent));
     LogTrace(L"ModelPeekPreviewHandler created");
     InterlockedIncrement(&g_serverLocks);
@@ -410,11 +411,24 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
             CreateDirectoryW((lowDir + L"\\cache").c_str(), NULL);
             CreateDirectoryW(cacheDir.c_str(), NULL);
 
+            WIN32_FILE_ATTRIBUTE_DATA fad = { 0 };
+            uint64_t lastWrite = 0;
+            uint64_t fileSize = 0;
+            if (GetFileAttributesExW(filePath.c_str(), GetFileExInfoStandard, &fad)) {
+                lastWrite = ((uint64_t)fad.ftLastWriteTime.dwHighDateTime << 32) | fad.ftLastWriteTime.dwLowDateTime;
+                fileSize = ((uint64_t)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
+            }
+
             uint64_t hash = 14695981039346656037ULL;
             for (WCHAR c : filePath) {
                 hash ^= (uint64_t)(towlower(c));
                 hash *= 1099511628211ULL;
             }
+            hash ^= lastWrite;
+            hash *= 1099511628211ULL;
+            hash ^= fileSize;
+            hash *= 1099511628211ULL;
+
             std::wstringstream ss;
             if (isLas) {
                 ss << cacheDir << L"\\" << std::hex << hash << L".pcd";
@@ -424,6 +438,17 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
                 ss << cacheDir << L"\\" << std::hex << hash << L".stl";
             }
             std::wstring cachedTarget = ss.str();
+
+            // Validate existing cached file; remove if 0-byte or corrupted
+            if (PathFileExistsW(cachedTarget.c_str())) {
+                WIN32_FILE_ATTRIBUTE_DATA targetFad = { 0 };
+                if (GetFileAttributesExW(cachedTarget.c_str(), GetFileExInfoStandard, &targetFad)) {
+                    uint64_t targetSize = ((uint64_t)targetFad.nFileSizeHigh << 32) | targetFad.nFileSizeLow;
+                    if (targetSize < 84) {
+                        DeleteFileW(cachedTarget.c_str());
+                    }
+                }
+            }
 
             if (!PathFileExistsW(cachedTarget.c_str())) {
                 bool pipeConverted = false;
@@ -442,8 +467,16 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
                         }
                         CloseHandle(hPipe);
                         if (PathFileExistsW(cachedTarget.c_str())) {
-                            pipeConverted = true;
-                            LogTrace(L"PreviewHandler: Model converted via Daemon Named Pipe successfully!");
+                            WIN32_FILE_ATTRIBUTE_DATA targetFad = { 0 };
+                            if (GetFileAttributesExW(cachedTarget.c_str(), GetFileExInfoStandard, &targetFad)) {
+                                uint64_t sz = ((uint64_t)targetFad.nFileSizeHigh << 32) | targetFad.nFileSizeLow;
+                                if (sz >= 84) {
+                                    pipeConverted = true;
+                                    LogTrace(L"PreviewHandler: Model converted via Daemon Named Pipe successfully!");
+                                } else {
+                                    DeleteFileW(cachedTarget.c_str());
+                                }
+                            }
                         }
                     }
                 }
@@ -467,7 +500,9 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
                     cmdLine.push_back(L'\0');
 
                     if (CreateProcessW(NULL, cmdLine.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-                        if (WaitForSingleObject(pi.hProcess, 3000) == WAIT_TIMEOUT) {
+                        // Allow up to 15 seconds for heavy CAD/mesh conversion in VMs
+                        if (WaitForSingleObject(pi.hProcess, 15000) == WAIT_TIMEOUT) {
+                            LogTrace(L"PreviewHandler: Worker conversion timed out after 15s, terminating process");
                             TerminateProcess(pi.hProcess, 1);
                         }
                         CloseHandle(pi.hProcess);
@@ -477,11 +512,18 @@ std::wstring ModelPeekPreviewHandler::PrepareModelForPreview(const std::wstring&
             }
 
             if (PathFileExistsW(cachedTarget.c_str())) {
-                LogTrace(L"PreviewHandler: Model converted successfully to: " + cachedTarget);
-                return cachedTarget;
-            } else {
-                LogTrace(L"PreviewHandler: Model conversion FAILED to produce: " + cachedTarget);
+                WIN32_FILE_ATTRIBUTE_DATA targetFad = { 0 };
+                if (GetFileAttributesExW(cachedTarget.c_str(), GetFileExInfoStandard, &targetFad)) {
+                    uint64_t targetSize = ((uint64_t)targetFad.nFileSizeHigh << 32) | targetFad.nFileSizeLow;
+                    if (targetSize >= 84) {
+                        LogTrace(L"PreviewHandler: Model converted successfully to: " + cachedTarget);
+                        return cachedTarget;
+                    } else {
+                        DeleteFileW(cachedTarget.c_str());
+                    }
+                }
             }
+            LogTrace(L"PreviewHandler: Model conversion FAILED to produce valid mesh: " + cachedTarget);
         }
     }
     return filePath;
@@ -511,12 +553,14 @@ bool ModelPeekPreviewHandler::InitWebView2() {
     auto onEnvCreated = [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
         LogTrace(L"onEnvCreated callback hr=" + std::to_wstring(result));
         if (FAILED(result) || !env) {
+            m_isInitializingWebView = false;
             LogTrace(L"onEnvCreated FAILED!");
             return result;
         }
 
         auto onControllerCreated = [this](HRESULT res, ICoreWebView2Controller* controller) -> HRESULT {
             LogTrace(L"onControllerCreated callback res=" + std::to_wstring(res));
+            m_isInitializingWebView = false;
             if (FAILED(res) || !controller) return res;
 
             m_controller = controller;
@@ -550,7 +594,15 @@ bool ModelPeekPreviewHandler::InitWebView2() {
                 settings->Release();
             }
 
-            std::wstring targetModel = PrepareModelForPreview(m_filePath);
+            uint64_t activeReqId = m_previewRequestId;
+            std::wstring activeFilePath = m_filePath;
+            std::wstring targetModel = PrepareModelForPreview(activeFilePath);
+
+            if (activeReqId != m_previewRequestId) {
+                LogTrace(L"onControllerCreated: superseding request detected after conversion, skipping stale load");
+                return S_OK;
+            }
+
             std::wstring viewerPath = GetViewerHtmlPath();
 
             std::wstringstream url;
@@ -608,9 +660,45 @@ STDMETHODIMP ModelPeekPreviewHandler::DoPreview() {
         }
     }
 
-    if (!InitWebView2()) {
-        LogTrace(L"DoPreview: InitWebView2 FAILED");
-        return E_FAIL;
+    uint64_t currentReqId = ++m_previewRequestId;
+    std::wstring currentFilePath = m_filePath;
+
+    // Fast path: if WebView2 is already initialized and alive, navigate directly
+    if (m_webview) {
+        std::wstring targetModel = PrepareModelForPreview(currentFilePath);
+        if (currentReqId != m_previewRequestId) {
+            LogTrace(L"DoPreview: superseding request detected after conversion, discarding " + currentFilePath);
+            return S_OK;
+        }
+
+        std::wstring viewerPath = GetViewerHtmlPath();
+        std::wstringstream url;
+        url << L"file:///";
+        for (WCHAR c : viewerPath) {
+            if (c == L'\\') url << L'/';
+            else url << c;
+        }
+        url << L"?file=";
+        for (WCHAR c : targetModel) {
+            if (c == L'\\') url << L'/';
+            else if (c == L' ') url << L"%20";
+            else if (c == L'#') url << L"%23";
+            else url << c;
+        }
+
+        LogTrace(L"DoPreview: Existing webview navigating to: " + url.str());
+        m_webview->Navigate(url.str().c_str());
+        return S_OK;
+    }
+
+    // Only initiate WebView2 environment & controller creation if not already initializing
+    if (!m_isInitializingWebView) {
+        m_isInitializingWebView = true;
+        if (!InitWebView2()) {
+            m_isInitializingWebView = false;
+            LogTrace(L"DoPreview: InitWebView2 FAILED");
+            return E_FAIL;
+        }
     }
     LogTrace(L"DoPreview: SUCCEEDED");
     return S_OK;
@@ -618,6 +706,8 @@ STDMETHODIMP ModelPeekPreviewHandler::DoPreview() {
 
 STDMETHODIMP ModelPeekPreviewHandler::Unload() {
     LogTrace(L"PreviewHandler::Unload called");
+    ++m_previewRequestId;
+    m_isInitializingWebView = false;
     if (m_controller) {
         m_controller->Close();
         m_controller->Release();

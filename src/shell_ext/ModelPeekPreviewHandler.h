@@ -3,6 +3,7 @@
 #include <shobjidl.h>
 #include <ocidl.h>
 #include <string>
+#include <cstdint>
 #include "webview2/WebView2.h"
 
 class ModelPeekPreviewHandler : public IPreviewHandler,
@@ -62,6 +63,8 @@ private:
 
     ICoreWebView2Controller* m_controller;
     ICoreWebView2* m_webview;
+    uint64_t m_previewRequestId;
+    bool m_isInitializingWebView;
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     bool CreateChildWindow();

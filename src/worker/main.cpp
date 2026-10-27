@@ -1068,7 +1068,8 @@ bool LoadBREP(const std::wstring& wpath, std::vector<Triangle>& tris, Vec3& minB
 
 bool SaveSTL(const std::wstring& wpath, const std::vector<Triangle>& tris) {
     if (tris.empty()) return false;
-    FILE* f = _wfopen(wpath.c_str(), L"wb");
+    std::wstring tmpPath = wpath + L".tmp";
+    FILE* f = _wfopen(tmpPath.c_str(), L"wb");
     if (!f) return false;
     char header[80] = "ModelPeek Native High-Speed STL Exporter";
     fwrite(header, 1, 80, f);
@@ -1082,7 +1083,12 @@ bool SaveSTL(const std::wstring& wpath, const std::vector<Triangle>& tris) {
         uint16_t attr = 0;
         fwrite(&attr, 2, 1, f);
     }
+    fflush(f);
     fclose(f);
+    if (!MoveFileExW(tmpPath.c_str(), wpath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
+        DeleteFileW(tmpPath.c_str());
+        return false;
+    }
     return true;
 }
 
@@ -1247,7 +1253,8 @@ bool ConvertLASToPCD(const std::wstring& inLas, const std::wstring& outPcd) {
     uint64_t stride = (totalPoints > 200000) ? (totalPoints / 200000 + 1) : 1;
     uint64_t writtenPoints = (totalPoints + stride - 1) / stride;
 
-    FILE* fout = _wfopen(outPcd.c_str(), L"wb");
+    std::wstring tmpOut = outPcd + L".tmp";
+    FILE* fout = _wfopen(tmpOut.c_str(), L"wb");
     if (!fout) {
         fclose(fin);
         return false;
@@ -1282,7 +1289,12 @@ bool ConvertLASToPCD(const std::wstring& inLas, const std::wstring& outPcd) {
         }
     }
     fclose(fin);
+    fflush(fout);
     fclose(fout);
+    if (!MoveFileExW(tmpOut.c_str(), outPcd.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
+        DeleteFileW(tmpOut.c_str());
+        return false;
+    }
     return true;
 }
 

@@ -89,6 +89,7 @@ class ModelPeekViewer {
         this.controls = null;
         this.currentModel = null;
         this.edgeLines = null;
+        this.loadGeneration = 0;
         this.gridHelper = null;
         this.axesHelper = null;
         this.renderMode = 'shaded_edges'; // 'shaded', 'shaded_edges', 'wireframe'
@@ -221,6 +222,7 @@ class ModelPeekViewer {
 
     // Load 3D model from URL / local file path
     loadModel(filePath) {
+        const currentGen = ++this.loadGeneration;
         let fileUrl = filePath;
         if (!fileUrl.startsWith('file://') && !fileUrl.startsWith('http://') && !fileUrl.startsWith('https://')) {
             fileUrl = fileUrl.replace(/\\/g, '/');
@@ -234,6 +236,7 @@ class ModelPeekViewer {
         const ext = fileName.split('.').pop().toLowerCase();
 
         const onProgress = (xhr) => {
+            if (currentGen !== this.loadGeneration) return;
             if (xhr.lengthComputable) {
                 const percent = Math.round((xhr.loaded / xhr.total) * 100);
                 this.updateLoaderText(`加载中: ${percent}%`);
@@ -241,6 +244,7 @@ class ModelPeekViewer {
         };
 
         const onError = (error) => {
+            if (currentGen !== this.loadGeneration) return;
             console.error("加载模型失败:", error);
             this.hideLoader();
             this.showToast("模型加载失败，请检查文件格式或损坏状态");
@@ -250,6 +254,10 @@ class ModelPeekViewer {
             switch (ext) {
                 case 'stl':
                     new THREE.STLLoader().load(fileUrl, (geometry) => {
+                        if (currentGen !== this.loadGeneration) {
+                            geometry.dispose();
+                            return;
+                        }
                         const material = this.createDefaultMaterial();
                         const mesh = new THREE.Mesh(geometry, material);
                         this.setModel(mesh, filePath);
@@ -258,6 +266,10 @@ class ModelPeekViewer {
 
                 case 'obj':
                     new THREE.OBJLoader().load(fileUrl, (object) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(object);
+                            return;
+                        }
                         this.setModel(object, filePath);
                     }, onProgress, onError);
                     break;
@@ -265,24 +277,40 @@ class ModelPeekViewer {
                 case 'glb':
                 case 'gltf':
                     new THREE.GLTFLoader().load(fileUrl, (gltf) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(gltf.scene);
+                            return;
+                        }
                         this.setModel(gltf.scene, filePath);
                     }, onProgress, onError);
                     break;
 
                 case '3mf':
                     new THREE.ThreeMFLoader().load(fileUrl, (object) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(object);
+                            return;
+                        }
                         this.setModel(object, filePath);
                     }, onProgress, onError);
                     break;
 
                 case 'fbx':
                     new THREE.FBXLoader().load(fileUrl, (object) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(object);
+                            return;
+                        }
                         this.setModel(object, filePath);
                     }, onProgress, onError);
                     break;
 
                 case 'ply':
                     new THREE.PLYLoader().load(fileUrl, (geometry) => {
+                        if (currentGen !== this.loadGeneration) {
+                            geometry.dispose();
+                            return;
+                        }
                         let material;
                         if (geometry.hasAttribute('color')) {
                             material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.2, side: THREE.DoubleSide });
@@ -296,30 +324,50 @@ class ModelPeekViewer {
 
                 case 'gcode':
                     new THREE.GCodeLoader().load(fileUrl, (object) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(object);
+                            return;
+                        }
                         this.setModel(object, filePath);
                     }, onProgress, onError);
                     break;
 
                 case 'dae':
                     new THREE.ColladaLoader().load(fileUrl, (collada) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(collada.scene);
+                            return;
+                        }
                         this.setModel(collada.scene, filePath);
                     }, onProgress, onError);
                     break;
 
                 case '3ds':
                     new THREE.TDSLoader().load(fileUrl, (object) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(object);
+                            return;
+                        }
                         this.setModel(object, filePath);
                     }, onProgress, onError);
                     break;
 
                 case 'dxf':
                     new THREE.DXFLoader().load(fileUrl, (object) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(object);
+                            return;
+                        }
                         this.setModel(object, filePath);
                     }, onProgress, onError);
                     break;
 
                 case 'pcd':
                     new THREE.PCDLoader().load(fileUrl, (points) => {
+                        if (currentGen !== this.loadGeneration) {
+                            this.disposeHierarchy(points);
+                            return;
+                        }
                         if (points.material) {
                             points.material.size = Math.max(1, (this.modelRadius || 100) * 0.005);
                         }
@@ -332,6 +380,10 @@ class ModelPeekViewer {
                 case 'jpg':
                 case 'jpeg':
                     new THREE.TextureLoader().load(fileUrl, (texture) => {
+                        if (currentGen !== this.loadGeneration) {
+                            texture.dispose();
+                            return;
+                        }
                         texture.minFilter = THREE.LinearFilter;
                         texture.magFilter = THREE.LinearFilter;
                         const img = texture.image;
@@ -356,10 +408,38 @@ class ModelPeekViewer {
         }
     }
 
+
+    disposeHierarchy(node) {
+        if (!node) return;
+        node.traverse((child) => {
+            if (child.geometry) {
+                child.geometry.dispose();
+            }
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach((mat) => {
+                        if (mat && mat.map) mat.map.dispose();
+                        if (mat) mat.dispose();
+                    });
+                } else {
+                    if (child.material.map) child.material.map.dispose();
+                    child.material.dispose();
+                }
+            }
+        });
+    }
+
     // Set model into scene and calculate stats
     setModel(object, filePath) {
+        if (this.edgeLines) {
+            this.scene.remove(this.edgeLines);
+            this.disposeHierarchy(this.edgeLines);
+            this.edgeLines = null;
+        }
+
         if (this.currentModel) {
             this.scene.remove(this.currentModel);
+            this.disposeHierarchy(this.currentModel);
             this.currentModel = null;
         }
 
@@ -503,6 +583,7 @@ class ModelPeekViewer {
     generateEdgeLines() {
         if (this.edgeLines) {
             this.scene.remove(this.edgeLines);
+            this.disposeHierarchy(this.edgeLines);
             this.edgeLines = null;
         }
 
